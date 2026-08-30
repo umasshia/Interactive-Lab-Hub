@@ -64,7 +64,7 @@ On paper we thought we could use Tinkerbelle as-is: put a water bottle on top of
 
 **Did new ideas about the piece surface once you were on your feet?**
 
-Not during the staging. The new idea came from watching the video we had staged. Seeing the field keep living after I walk out of frame gave me a new perspective on the interaction: nature is unchangeable and keeps being without us, even though we might affect it in significant ways for a while. Until then I had read the piece mostly through its immersive quality; this reframed it as being about our relationship with something that outlasts us.
+**Giorgi:** Not during the staging. The new idea came from watching the video we had staged. Seeing the field keep living after I walk out of frame gave me a new perspective on the interaction: nature is unchangeable and keeps being without us, even though we might affect it in significant ways for a while. Until then I had read the piece mostly through its immersive quality; this reframed it as being about our relationship with something that outlasts us.
 
 **Are there key moments in the interaction where things could go in a different direction?**
 
@@ -105,7 +105,7 @@ To illustrate the non-sequential side of the interaction, the take strings toget
 
 Tinkerbelle out of the box can only turn a screen one flat colour, and a flat colour could not carry this piece. We ended up extending it a lot: fixing its fade timing, drawing a field of flowers on a canvas, and adding keys for what the visitor's hand is doing. It ate time the assignment maybe didn't ask for, but it forced us to decide which part of the interaction actually mattered, and that decision is the recreation.
 
-My understanding of the piece also changed by making it. Going in, I had read Borderless mostly through its immersive quality. Watching our own staged footage, where the field keeps living after I walk out of frame, made the point land differently: we affect nature in significant ways for a bit, but it keeps being without us. I would not have gotten there by reading about it.
+**Giorgi:** My understanding of the piece also changed by making it. Going in, I had read Borderless mostly through its immersive quality. Watching our own staged footage, where the field keeps living after I walk out of frame, made the point land differently: we affect nature in significant ways for a bit, but it keeps being without us. I would not have gotten there by reading about it.
 
 **Collaborators and credits:** Shuning Liu (partner) nailed down the core interaction from the research and videos, drew the storyboards, and brainstormed the plan with me. Rati Mukhuradze (friend) lent us the projector, helped stage the shot, and hand-wizarded the final take. My roommate and my family reacted to early ideas. Tinkerbelle tool by the IRL-CT lab. Research from teamLab's artwork page (teamlab.art/ew/flowerforest) and their official video of the work. I used Claude to help research the artwork, debug and extend the Tinkerbelle code. Acting and final writing are ours.
 
