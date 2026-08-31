@@ -89,7 +89,7 @@ The wizard watches the actor's hand and presses the matching key as the gesture 
 
 ## Part D. Wizard the Device
 
-Giorgi acted at the projected wall while our friend Rati sat at the laptop out of frame, watching Giorgi's hand directly and pressing the matching keys (approach, tap, flick, leave) as each gesture happened. In our first recording the projection covered only part of the frame, the browser's buttons were visible in the corner of the projection, and cables crossed the wall. For the final take we fullscreened the page, cleared the cables, and tightened the framing until only flowers were visible. The wizarding only read as real because Rati was keying off my hand, not a script: the closer the light's response landed to the moment of the gesture, the more alive the wall felt.
+Giorgi acted at the projected wall while our friend Rati sat at the laptop out of frame, watching Giorgi's hand directly and pressing the matching keys (approach, tap, flick, leave) as each gesture happened. In our first recording the projection covered only part of the frame, the browser's buttons were visible in the corner of the projection, and cables crossed the wall. For the final take we fullscreened the page, cleared the cables, and tightened the framing until only flowers were visible. The wizarding only read as real because Rati was keying off Giorgi's hand, not a script: the closer the light's response landed to the moment of the gesture, the more alive the wall felt.
 
 [Rough first take](lab1-rough-take.mp4)
 
@@ -107,7 +107,7 @@ Tinkerbelle out of the box can only turn a screen one flat colour, and a flat co
 
 **Giorgi:** My understanding of the piece also changed by making it. Going in, I had read Borderless mostly through its immersive quality. Watching our own staged footage, where the field keeps living after I walk out of frame, made the point land differently: we affect nature in significant ways for a bit, but it keeps being without us. I would not have gotten there by reading about it.
 
-**Collaborators and credits:** Shuning Liu (partner) nailed down the core interaction from the research and videos, drew the storyboards, and brainstormed the plan with me. Rati Mukhuradze (friend) lent us the projector, helped stage the shot, and hand-wizarded the final take. My roommate and my family reacted to early ideas. Tinkerbelle tool by the IRL-CT lab. Research from teamLab's artwork page (teamlab.art/ew/flowerforest) and their official video of the work. I used Claude to help research the artwork, debug and extend the Tinkerbelle code. Acting and final writing are ours.
+**Collaborators and credits:** Shuning Liu (partner) nailed down the core interaction from the research and videos, drew the storyboards, and brainstormed the plan with Giorgi. Rati Mukhuradze (friend) lent us the projector, helped stage the shot, and hand-wizarded the final take. Giorgi's roommate and family reacted to early ideas. Tinkerbelle tool by the IRL-CT lab. Research from teamLab's artwork page (teamlab.art/ew/flowerforest) and their official video of the work. Giorgi used Claude to help research the artwork and to debug and extend the Tinkerbelle code. Acting and final writing are ours.
 
 ---
 
