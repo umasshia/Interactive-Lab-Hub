@@ -91,13 +91,13 @@ The wizard watches the actor's hand and presses the matching key as the gesture 
 
 Giorgi acted at the projected wall while our friend Rati sat at the laptop out of frame, watching Giorgi's hand directly and pressing the matching keys (approach, tap, flick, leave) as each gesture happened. In our first recording the projection covered only part of the frame, the browser's buttons were visible in the corner of the projection, and cables crossed the wall. For the final take we fullscreened the page, cleared the cables, and tightened the framing until only flowers were visible. The wizarding only read as real because Rati was keying off Giorgi's hand, not a script: the closer the light's response landed to the moment of the gesture, the more alive the wall felt.
 
-[Rough first take](lab1-rough-take.mp4)
+https://github.com/user-attachments/assets/475a56d0-ebfa-43fa-aba7-ae19f038d57f
 
 ## Part E. (optional) Costume the Device
 
 ## Part F. Record
 
-[Video sketch](lab1-video-sketch.mp4)
+https://github.com/user-attachments/assets/bbcf7629-c265-4380-bcd7-726544ff1939
 
 To illustrate the non-sequential side of the interaction, the take strings together different kinds of input rather than one repeated action: approaching, tapping, flicking, and just standing back. Between gestures the field keeps moving on its own, so the viewer can see that nothing forces the next step; the visitor could stop at any beat, do them in another order, or never touch the wall at all, and the flowers would go on either way.
 
