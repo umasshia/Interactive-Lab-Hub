@@ -126,8 +126,15 @@ videos, and give them reactions and feedback: tell them what you saw happening,
 guess the masterwork and the goals of the characters, and ask about anything that
 wasn't clear.
 
-**Who were the other groups you kibitzed with? Add links to their project pages here.**
-**Summarize the feedback you got from your partners here.**
+We exchanged feedback with three other groups over Slack:
+
+- [Group 1](https://github.com/JindiChai/Interactive-Lab-Hub/tree/Fall2026/Lab%201)
+- [Group 2](https://github.com/davidzhanggg/Interactive-Lab-Hub)
+- [Group 3](https://github.com/Alexyen04/Alex-Yen-Interactive-Lab-Hub/tree/Fall2026/Lab%201)
+
+All three groups could identify the masterwork and the interactions from the video and storyboards alone. The approach response (flowers turning warm) and the hand-to-flower effects read clearly, and the swing was singled out as the most satisfying moment to watch. The Tinkerbelle modifications were called out as what makes the projection feel close to the real museum, and one group specifically liked that the field keeps moving when nobody is interacting, because it makes the environment feel like it exists on its own.
+
+We also got a few questions and suggestions. Would a visitor who hasn't seen the installation before know that they can approach, tap, or swing? What happens if two people touch or flick the flowers in different places at the same time? How would we detect the hand's position and gesture without a wizard? We were told to consider adding sound or more actions, and that since the piece currently reads as pure art, adding an emotional or practical function could make it more unique.
 
 ## Remix, Update, or Critique the Master
 
