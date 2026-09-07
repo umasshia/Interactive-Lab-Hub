@@ -119,6 +119,40 @@ Tinkerbelle out of the box can only turn a screen one flat colour, and a flat co
 
 *This describes the second week's work for this lab activity.*
 
+## How to drive it
+
+Start the server from the [`tinkerbelle`](tinkerbelle/) folder (`python tinker.py`), then open two browser windows on the same machine or network:
+
+| Window | URL | Then |
+|---|---|---|
+| Light (projector) | `http://<ip>:5001/?mode=blobs&season=cherry&fps=1` | click **Tinkerbelle** once (fullscreen, and unlocks audio) |
+| Wizard (laptop) | `http://<ip>:5001/?point=30,50&point2=70,50` | click **Wizard**; keep this window visible during a take |
+
+`point` and `point2` are where the visitor's hand is, in percent across and down the wall. Gestures land at `point`; hold **Shift** with a gesture and it lands at `point2`, so two people touching two places is two keypresses. Light-page options: `regrow=45` (seconds a killed patch stays dark), `petallife=4.5`, `exposure=1.6`, `band=70`, `wide=110`, `sat=0.6,0.9`, `full=0.25`, `pale=0.15`, `sfx=0.35`, `amb=0.6`, `count=320`, `dir=right`.
+
+| Group | Key | What the light does |
+|---|---|---|
+| Colours | `1` `2` | emerald / violet idle, 6 s fades |
+| | `7` `8` `3` `4` | a bloom in stages: bud green, soft pink, magenta, gold |
+| | `5` `6` | teal / blue |
+| | `A` / `L` | someone approaches (warm rose) / leaves (dim violet-blue) |
+| | `0` | black |
+| Gestures | `Space` | tap: flowers near the point break into petals, the rest ripple |
+| | `←` `↑` `→` `↓` | swipe: same, then a hand sweeps through in that direction |
+| | `Enter` | flick: flowers along a line from the point break, petals fly downwind |
+| | `D` / `H` | drag / hold: flowers move or gather, nothing dies |
+| | `Shift` + gesture | at the second point |
+| Seasons | `S` | next season: cherry → summer → autumn; base colour fades over 5 s, new flowers take the new palette |
+| Field | `T` | age the field 40 s (shows the life cycle on camera) |
+| | `R` | reset every slot to full bloom |
+| | `Z` | pause / resume natural aging (touch still kills, patches still regrow) |
+| Sound | `M` / `N` | ambient on / off |
+| | `B` | sound source: files in `static/sounds/` ↔ Web Audio synth |
+| Exposure | `[` / `]` | darker / brighter, 0.6 to 2.0 |
+| Solo | `P` / `Esc` | run / cancel the scripted take |
+
+Sound files go in `tinkerbelle/static/sounds/` as `ambient.mp3`, `tap.mp3`, `swipe.mp3` (ogg, wav or m4a also work). Any missing one is synthesized in the browser; reload the light page after adding a file.
+
 ## Prep (before the next lab)
 
 Find three other groups. (How? Maybe Slack?) Visit their Lab Hub pages, watch their

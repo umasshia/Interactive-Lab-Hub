@@ -1,4 +1,5 @@
-from flask import Flask, render_template
+from flask import Flask, render_template, jsonify
+import os
 from flask_socketio import SocketIO, send, emit
 import socket
 import sys
@@ -35,6 +36,21 @@ def handle_poke(val):
 @socketio.on('audio')
 def handle_audio(val):
 	broadcast('audio', val)
+
+# The light page asks this at load. Only fixed names are reported and the listing is of our own
+# static folder, so nothing from the request reaches the filesystem.
+SOUND_DIR = os.path.join(app.static_folder, 'sounds')
+SOUND_NAMES = ('ambient', 'tap', 'swipe')
+SOUND_EXTS = ('.mp3', '.ogg', '.wav', '.m4a', '.webm', '.flac')
+@app.route('/sounds')
+def sounds():
+	found = {}
+	if os.path.isdir(SOUND_DIR):
+		for f in sorted(os.listdir(SOUND_DIR)):
+			stem, ext = os.path.splitext(f)
+			if stem in SOUND_NAMES and ext.lower() in SOUND_EXTS and stem not in found:
+				found[stem] = 'static/sounds/' + f
+	return jsonify(found)
 
 @socketio.on('field')
 def handle_field(val):

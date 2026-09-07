@@ -38,8 +38,9 @@
 	                    flowers roll their shade and species from the new palette (T speeds it up)
 	       [ / ]        exposure down / up by 0.1 (0.6..2.0): flower and glow alpha, and lightness
 	       M / N        ambient sound on / off (plays on light pages; click the page once first)
+	       B            sound source: files in static/sounds/ <-> Web Audio synth
 	       P / Esc      run / cancel the scripted solo take (static/solo.js)
-	     Light-page URL options: ?mode=blobs&season=cherry&regrow=45&exposure=1.3&point=50,50&dir=right&fps=1 (see index.js). -->
+	     Light-page URL options: ?mode=blobs&season=cherry&regrow=45&exposure=1.6&band=70&point=50,50&dir=right&fps=1 (see index.js). -->
 
 	<!-- idle cycle: alternate 1 and 2 while nobody is there -->
 	<tinker-button letter="1" color_code="#0f6b4a" duration="6000" easing="SinInOut"></tinker-button>
@@ -62,6 +63,18 @@
 	<!-- hard off -->
 	<tinker-button letter="0" color_code="#000000" duration="300" easing="Linear"></tinker-button>
 
+</div>
+<div id="legend" hidden>
+	<table>
+	<tr><th>Colours</th><td><b>1</b> emerald &middot; <b>2</b> violet &middot; <b>7</b> bud green &middot; <b>8</b> soft pink &middot; <b>3</b> magenta &middot; <b>4</b> gold &middot; <b>5</b> teal &middot; <b>6</b> blue &middot; <b>A</b> approach (warm rose) &middot; <b>L</b> rest (dim violet) &middot; <b>0</b> black</td></tr>
+	<tr><th>Gestures</th><td><b>Space</b> tap &middot; <b>&larr; &uarr; &rarr; &darr;</b> swipe &middot; <b>Enter</b> flick &middot; <b>D</b> drag &middot; <b>H</b> hold &middot; <b>Shift</b> + any: at the second point</td></tr>
+	<tr><th>Seasons</th><td><b>S</b> next season: cherry &rarr; summer &rarr; autumn (base colour fades over 5 s)</td></tr>
+	<tr><th>Field</th><td><b>T</b> age the field 40 s &middot; <b>R</b> reset to full bloom &middot; <b>Z</b> pause / resume aging</td></tr>
+	<tr><th>Sound</th><td><b>M</b> ambient on &middot; <b>N</b> ambient off &middot; <b>B</b> file &harr; synth</td></tr>
+	<tr><th>Exposure</th><td><b>[</b> darker &middot; <b>]</b> brighter (0.6 to 2.0)</td></tr>
+	<tr><th>Solo</th><td><b>P</b> run the scripted take &middot; <b>Esc</b> cancel</td></tr>
+	<tr><th>Touch point</th><td>set on this page's URL: <code>?point=30,50&amp;point2=70,50</code> (percent across, down). Light page: <code>?mode=blobs&amp;season=cherry&amp;fps=1</code>, click Tinkerbelle once.</td></tr>
+	</table>
 </div>
 
 	<link rel="stylesheet" href="static/vendor/pickr-classic.min.css" />

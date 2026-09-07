@@ -11,10 +11,18 @@ const control = document.getElementById('control');
 //   dir=<right|left|up|down|angle-in-degrees>   direction of a swipe/flick (default right)
 //   count=<n>     how many flowers (default 256)
 //   season=<0|1|2|name>   starting palette (see SEASONS); the wizard's S key cycles them
+//   palette tunables (override the season's defaults, so they can be set on the projector):
+//     band=<deg>     hue band around the base most flowers stay in (default 70)
+//     wide=<deg>     band for the one-in-ten outliers (default 110; never complementary)
+//     sat=<lo,hi>    chroma range of the mid class as a fraction of full (default 0.6,0.9)
+//     full=<frac>    share of fully saturated flowers (default 0.25)
+//     pale=<frac>    share of pale flowers: light with a clear tint (default 0.15)
 //   seed=<n>      change the layout
 //   tone=<hex>    starting colour before the wizard sends anything (e.g. tone=ff2fa0)
 //   regrow=<s>    seconds a gone flower's slot stays dark before a new bud (default 45); buds take 10 s more to open
-//   exposure=<x>  starting brightness multiplier, 0.6..2.0 (default 1.3); the wizard's [ and ] step it
+//   exposure=<x>  starting brightness multiplier, 0.6..2.0 (default 1.6); the wizard's [ and ] step it
+//   petallife=<s> seconds a detached petal takes to fade (default 4.5)
+//   sfx=<0..1>    volume of the tap/swipe effects (default 0.35); amb=<0..1> ambient volume (default 0.6)
 //   point=x,y     touch point in %, used when the wizard's gesture carries none (default 50,50)
 //
 // Performance model: a flower is a list of petals, but while it is alive it is drawn as ONE
@@ -33,7 +41,7 @@ if (params.get('debug')) window.addEventListener('error', (e) => {
 });
 const lightMode = params.get('mode');
 const spreadMs = Number(params.get('spread') || 900);
-const blobCount = Number(params.get('count') || 256);
+const blobCount = Number(params.get('count') || 320);
 
 // deterministic pseudo-random so the layout is the same on every reload (change ?seed= to reshuffle)
 let seed = Number(params.get('seed') || 7);
@@ -45,7 +53,7 @@ const rand = () => { seed = (seed * 1664525 + 1013904223) % 4294967296; return s
 const TIER = [ // small, large, glow patch
   { op: 0.5,  light: 0.7, blur: 0.6 },
   { op: 0.75, light: 1.0, blur: 0 },
-  { op: 0.18, light: 1.0, blur: 0 },
+  { op: 0.30, light: 1.0, blur: 0 },
 ];
 const blobSpots = [];
 {
@@ -157,7 +165,7 @@ const deadAt = blobSpots.map(() => null);  // real time it went, or null while a
 const sizeMul = blobSpots.map(() => 1);
 let fieldTime = 0, agingPaused = false;
 // exposure: a global brightness multiplier on flower alpha, glow alpha and lightness, stepped by the wizard
-let exposure = Math.min(2, Math.max(0.6, Number(params.get('exposure') || 1.3)));
+let exposure = Math.min(2, Math.max(0.6, Number(params.get('exposure') || 1.6)));
 function setExposure(v) { exposure = Math.round(Math.min(2, Math.max(0.6, v)) * 10) / 10; }
 
 // how old a flower is and what that looks like: [scale, alpha, wither 0..1, blur px]
@@ -168,7 +176,8 @@ function lifeLook(i) {
   if (age < BUD_MS) { const u = d3.easeSinOut(age / BUD_MS); return [0.25 + 0.75 * u, u, 0, BLUR_TIGHT + (BLUR_FULL - BLUR_TIGHT) * u]; }
   const w = (age - (lifespan[i] - WITHER_MS)) / WITHER_MS;
   if (w <= 0) return [1, 1, 0, BLUR_FULL];
-  return [1 - 0.45 * w, 1 - 0.8 * w, w, BLUR_FULL - (BLUR_FULL - BLUR_TIGHT) * w];
+  const lateW = Math.max(0, (w - 0.75) / 0.25);                    // glow only goes in the last quarter of withering
+  return [1 - 0.45 * w, 1 - 0.8 * w, w, BLUR_FULL - (BLUR_FULL - BLUR_TIGHT) * lateW];
 }
 // withering drains colour and light; hue stays so the flower still reads as itself
 function wither(color, w) {
@@ -199,7 +208,10 @@ function fadeTone(hex, ms) {
 const KILL = { tap: 11, swipe: 11, flick: 5 };   // radius (tap/swipe) or half-width of the line (flick), % of screen
 const FLICK_LEN = 45;                          // how far along the swipe direction a flick reaches, %
 const pendingKills = [];   // {i, at, vec}: deaths staggered by a few hundred ms so a patch/line dies as a sweep
-const petals = [];         // {x, y, vx, vy, size, color, born, life, ang, spin}
+const petals = [];         // {sprite, x, y, len, w, vx, vy, born, life, ang, spin, sway}  world px
+const petalLifeMs = Number(params.get('petallife') || 4.5) * 1000;
+const PETAL_COAST = 1.2;   // s: the burst spreads, then the petal is just falling
+const PETAL_FALL = 2.2;    // %/s: settling speed of a falling petal
 function killAround(x, y, r) {
   const now = performance.now();
   blobSpots.forEach(([bx, by], i) => {
@@ -241,12 +253,11 @@ function die(i, vec, now) {
     const dx = tx - bx, dy = ty - by, len = Math.hypot(dx, dy);
     const x = (bx + tx) / 2, y = (by + ty) / 2;
     let ang, speed;
-    if (vec) { ang = Math.atan2(vec[1], vec[0]) + (rand() - 0.5) * 0.7; speed = (45 + rand() * 40) * long / 100; }
-    else     { ang = Math.atan2(y - drawY[i], x - drawX[i]) + (rand() - 0.5) * 1.0; speed = (14 + rand() * 18) * long / 100; }   // tap/swipe: outward, slower
-    // outward petals tumble more, so they read as petals rather than as streaks along their own axis
+    if (vec) { ang = Math.atan2(vec[1], vec[0]) + (rand() - 0.5) * 0.7; speed = (12 + rand() * 12) * long / 100; }   // flick: all downwind, a bit faster
+    else     { ang = Math.atan2(y - drawY[i], x - drawX[i]) + (rand() - 0.5) * 1.0; speed = (7 + rand() * 9) * long / 100; }   // tap/swipe: outward
     petals.push({ sprite, x, y, len, w: ph * SPECIES[species[i]].width * p.w * f * (sx + sy) / 2,
       ang: Math.atan2(dx, -dy), vx: Math.cos(ang) * speed, vy: Math.sin(ang) * speed,
-      born: now, life: 1300 + rand() * 500, spin: (rand() - 0.5) * (vec ? 6 : 14) });
+      born: now, life: petalLifeMs * (0.9 + rand() * 0.2), spin: (rand() - 0.5) * (vec ? 2 : 3), sway: rand() * 6.28 });
   }
   deadAt[i] = now;
   offX[i] = offY[i] = velX[i] = velY[i] = bloom[i] = 0;   // no drifting home for the dead
@@ -264,20 +275,32 @@ const heartYellow = blobSpots.map(() => rand() < 0.7);   // star centres only
 // mid (most flowers), or full (a few). Existing flowers keep their roll when the season changes;
 // new ones roll from the new season, so the field turns over into the new palette.
 const SEASONS = [
-  { name: 'cherry', base: '#f58ec4', band: 25, wide: 55, pale: 0.35, mix: { cherry: 0.60, daisy: 0.15, mum: 0.15, star: 0.10 } },
-  { name: 'summer', base: '#5b6cff', band: 30, wide: 60, pale: 0.25, mix: { cherry: 0.15, daisy: 0.55, mum: 0.20, star: 0.10 } },
-  { name: 'autumn', base: '#e08a1e', band: 30, wide: 60, pale: 0.20, mix: { cherry: 0.10, daisy: 0.20, mum: 0.60, star: 0.10 } },
+  { name: 'cherry', base: '#f58ec4', band: 70, wide: 110, pale: 0.15, full: 0.25, sat: [0.6, 0.9], mix: { cherry: 0.60, daisy: 0.15, mum: 0.15, star: 0.10 } },
+  { name: 'summer', base: '#5b6cff', band: 70, wide: 110, pale: 0.15, full: 0.25, sat: [0.6, 0.9], mix: { cherry: 0.15, daisy: 0.55, mum: 0.20, star: 0.10 } },
+  { name: 'autumn', base: '#e08a1e', band: 70, wide: 110, pale: 0.15, full: 0.25, sat: [0.6, 0.9], mix: { cherry: 0.10, daisy: 0.20, mum: 0.60, star: 0.10 } },
 ];
+// URL overrides apply to every season
+{
+  const num = (k) => params.get(k) !== null ? Number(params.get(k)) : null;
+  const band = num('band'), wide = num('wide'), full = num('full'), paleShare = num('pale');
+  const sat = params.get('sat') ? params.get('sat').split(',').map(Number) : null;
+  for (const sn of SEASONS) {
+    if (band !== null) sn.band = band; if (wide !== null) sn.wide = wide;
+    if (full !== null) sn.full = full; if (paleShare !== null) sn.pale = paleShare;
+    if (sat && sat.length === 2) sn.sat = sat;
+  }
+}
 let season = Math.max(0, SEASONS.findIndex((x, k) => String(k) === params.get('season') || x.name === params.get('season')));
 const hueOff = blobSpots.map(() => 0), satMul = blobSpots.map(() => 0.5), pale = blobSpots.map(() => 0);
 const lightJitter = blobSpots.map(() => (rand() - 0.5) * 10);
 function rollPalette(i) {
   const sn = SEASONS[season];
+  // offsets stay within +-band (outliers +-wide); 110 stops well short of the complement at 180
   hueOff[i] = (rand() * 2 - 1) * (rand() < 0.1 ? sn.wide : sn.band);
   const u = rand();
-  if (u < sn.pale)   { satMul[i] = 0.15 + rand() * 0.15; pale[i] = 0.65 + rand() * 0.2; }   // pale: chroma low, pushed toward light
-  else if (u < 0.9)  { satMul[i] = 0.40 + rand() * 0.30; pale[i] = 0; }                     // mid: 40-70%
-  else               { satMul[i] = 1.0;                   pale[i] = 0; }                     // full
+  if (u < sn.pale)            { satMul[i] = 0.35 + rand() * 0.15; pale[i] = 0.5 + rand() * 0.15; }   // pale: light, still clearly tinted
+  else if (u < sn.pale + sn.full) { satMul[i] = 1.0;                pale[i] = 0; }                    // full
+  else                        { satMul[i] = sn.sat[0] + rand() * (sn.sat[1] - sn.sat[0]); pale[i] = 0; }   // mid
 }
 function seasonOp(k) {
   season = ((k % SEASONS.length) + SEASONS.length) % SEASONS.length;
@@ -340,8 +363,9 @@ function tint(color, i) {
   const c = d3.hcl(color);
   if (isNaN(c.h)) return color;                       // black / grey: leave alone
   c.h += hueOff[i];
-  c.c = Math.max(c.c, 55) * satMul[i];                // chroma from the class, not from the key's own vividness
-  c.l = Math.min(96, (c.l + (92 - c.l) * pale[i] + lightJitter[i]) * TIER[tierOf[i]].light * exposure);   // pale toward light; small tier dims; exposure lifts, never to white
+  c.c = Math.max(c.c, 70) * satMul[i];                // chroma from the class, not from the key's own vividness
+  c.l = (c.l + (92 - c.l) * pale[i] + lightJitter[i]) * TIER[tierOf[i]].light;   // pale toward light; small tier dims
+  c.l = Math.min(92, c.l + (100 - c.l) * (exposure - 1) * 0.25);                  // exposure lifts lightness gently (its main effect is alpha); never white
   return c.formatRgb();
 }
 
@@ -506,7 +530,7 @@ function renderBlobs() {
   if (petals.length >= petalPeak || now - petalPeakAt > 2000) { petalPeak = petals.length; petalPeakAt = now; }
   if (++fpsCount && now - fpsAt >= 1000) {
     window.fpsLast = fpsCount * 1000 / (now - fpsAt); fpsCount = 0; fpsAt = now;
-    if (fpsBox) fpsBox.textContent = `${window.fpsLast.toFixed(0)} fps  ${petalPeak} petals  exposure ${exposure.toFixed(1)}`;
+    if (fpsBox) fpsBox.textContent = `${window.fpsLast.toFixed(0)} fps  ${petalPeak} petals  exposure ${exposure.toFixed(1)}  sound ${soundLabel()}`;
   }
   const dt = Math.min((now - lastFrame) / 1000, 0.05); lastFrame = now;
   if (!agingPaused) fieldTime += dt * 1000;
@@ -577,9 +601,7 @@ function renderBlobs() {
         if (now - deadAt[i] < regrowMs) return;
         rebirth(i);
       } else if (fieldTime - birth[i] >= lifespan[i]) {
-        deadAt[i] = now; offX[i] = offY[i] = velX[i] = velY[i] = 0;   // withered away, quietly
-        onFlowerGone(i, now);
-        return;
+        onFlowerGone(i, now); rebirth(i);      // withered away quietly; a new bud starts at once, so only touched slots go dark
       }
       life = lifeLook(i);
       const blur = Math.round((life[3] + TIER[tierOf[i]].blur) * 4) / 4;   // quarter-px steps: a recompose 8 times per life, not per frame
@@ -627,15 +649,18 @@ function renderBlobs() {
     ctx.restore();
   });
 
-  // detached petals: fly, slow down, fade, vanish (world px; one drawImage each)
-  const petalCoast = Math.exp(-dt / 0.55);
+  // detached petals: the burst slows, then each petal drifts down like a falling petal, rocking a
+  // little, and fades over petallife seconds (world px; one drawImage each)
+  const petalCoast = Math.exp(-dt / PETAL_COAST), fall = PETAL_FALL * long / 100;
   for (let k = petals.length - 1; k >= 0; k--) {
     const p = petals[k], u = (now - p.born) / p.life;
     if (u >= 1) { petals.splice(k, 1); continue; }
-    p.x += p.vx * dt; p.y += p.vy * dt; p.vx *= petalCoast; p.vy *= petalCoast; p.ang += p.spin * dt;
+    p.vx = p.vx * petalCoast + Math.sin(now / 900 + p.sway) * 0.3 * fall * (1 - petalCoast);
+    p.vy = p.vy * petalCoast + fall * (1 - petalCoast);
+    p.x += p.vx * dt; p.y += p.vy * dt; p.ang += p.spin * dt;
     ctx.save();
     ctx.translate(p.x, p.y); ctx.rotate(p.ang);
-    ctx.globalAlpha = (1 - u) * 0.95;
+    ctx.globalAlpha = Math.min(1, (1 - u) * 1.6) * 0.95;      // full for the first third, then fades out
     ctx.drawImage(p.sprite, -p.w / 2, -p.len / 2, p.w, p.len);
     ctx.restore();
   }
@@ -668,42 +693,91 @@ const audio = new Audio();
 audio.loop = true;
 
 // ---- sound. Only light pages play, so a wizard window on the same laptop doesn't double it.
-// Files live in static/sounds/ (no internet needed). Browsers refuse audio until the page has
-// been clicked once: click "Tinkerbelle" on the light page before the take.
-//   M / N   ambient loop on / off          Space, arrows   short effect with the gesture
-const SFX = { tap: 'static/sounds/tap.mp3', swipe: 'static/sounds/swipe.mp3' };
-const ambient = new Audio('static/sounds/ambient.mp3');
-ambient.loop = true; ambient.volume = 0.6;
+// Two layers. Files: static/sounds/ambient.*, tap.*, swipe.* (mp3/ogg/wav/m4a); the server lists the
+// folder on every request to /sounds and the light page asks at load, so dropping a file in and
+// reloading is enough. Synth: if a file is missing (or the wizard forces synth with B) the sound is
+// made with Web Audio instead. Browsers refuse audio until the page has been clicked once: click
+// "Tinkerbelle" on the light page before the take.
+//   M / N   ambient on / off      B  file <-> synth      Space, arrows  effect with the gesture
+const clamp01 = (v) => Math.min(1, Math.max(0, v));
+const sfxVol = clamp01(Number(params.get('sfx') ?? 0.35)), ambVol = clamp01(Number(params.get('amb') ?? 0.6));
+let soundFiles = {};        // {ambient, tap, swipe} -> url, as found at page load
+let soundSource = 'file';   // 'file': use a file when there is one, else synth. 'synth': always synth
+let ambientWanted = false, ambientFile = null, ambientSynth = null, actx = null;
+if (lightMode) fetch('sounds').then((r) => r.json()).then((j) => { soundFiles = j; }).catch(() => {});
+function getAudioCtx() {
+  const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return null;
+  actx = actx || new AC();
+  if (actx.state === 'suspended') actx.resume();
+  return actx;
+}
+const useFile = (name) => soundSource === 'file' && soundFiles[name];
+const soundLabel = () => `${soundSource}${Object.keys(soundFiles).length ? ' [' + Object.keys(soundFiles).join(',') + ']' : ' [no files]'}`;
 function playSfx(kind) {
-  if (!lightMode || !SFX[kind]) return;
-  const a = new Audio(SFX[kind]); a.volume = 0.8;    // a fresh element per hit, so quick taps overlap
-  a.play().catch(() => {});
+  if (!lightMode || !(kind === 'tap' || kind === 'swipe')) return;
+  if (useFile(kind)) { const a = new Audio(soundFiles[kind]); a.volume = sfxVol; a.play().catch(() => {}); return; }
+  kind === 'tap' ? synthTap() : synthSwipe();
+}
+// tap: a soft low-passed pluck, 400-600 Hz, 5 ms attack (no click), 300 ms decay
+function synthTap() {
+  const c = getAudioCtx(); if (!c) return;
+  const t = c.currentTime;
+  const osc = c.createOscillator(); osc.type = 'triangle'; osc.frequency.value = 400 + Math.random() * 200;
+  const lp = c.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 1400; lp.Q.value = 0.7;
+  const g = c.createGain();
+  g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(sfxVol * 0.8, t + 0.005); g.gain.exponentialRampToValueAtTime(0.0005, t + 0.3);
+  osc.connect(lp).connect(g).connect(c.destination); osc.start(t); osc.stop(t + 0.32);
+}
+// swipe: noise shaped like a brush stroke, 250 ms, band-passed 1-3 kHz, quiet
+function synthSwipe() {
+  const c = getAudioCtx(); if (!c) return;
+  const t = c.currentTime, n = Math.round(c.sampleRate * 0.25);
+  const buf = c.createBuffer(1, n, c.sampleRate), d = buf.getChannelData(0);
+  for (let i = 0; i < n; i++) d[i] = Math.random() * 2 - 1;
+  const src = c.createBufferSource(); src.buffer = buf;
+  const bp = c.createBiquadFilter(); bp.type = 'bandpass'; bp.Q.value = 0.9;
+  bp.frequency.setValueAtTime(1200, t); bp.frequency.linearRampToValueAtTime(2800, t + 0.12); bp.frequency.linearRampToValueAtTime(1500, t + 0.25);
+  const g = c.createGain();
+  g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(sfxVol * 0.35, t + 0.06); g.gain.linearRampToValueAtTime(0, t + 0.25);
+  src.connect(bp).connect(g).connect(c.destination); src.start(t); src.stop(t + 0.26);
+}
+// ambient: two detuned low sines (plus a faint fifth and octave) under a low-pass, with an 8 s
+// tremolo. Oscillators run continuously, so there is no loop point to hear.
+function ambientOn() {
+  ambientOff(true);
+  if (useFile('ambient')) {
+    ambientFile = new Audio(soundFiles.ambient); ambientFile.loop = true; ambientFile.volume = ambVol;
+    ambientFile.play().catch(() => {}); return;
+  }
+  const c = getAudioCtx(); if (!c) return;
+  const t = c.currentTime;
+  const master = c.createGain(); master.gain.setValueAtTime(0, t); master.gain.linearRampToValueAtTime(ambVol, t + 3);
+  const trem = c.createGain(); trem.gain.value = 0.75;
+  const lfo = c.createOscillator(); lfo.frequency.value = 1 / 8;
+  const lfoG = c.createGain(); lfoG.gain.value = 0.25; lfo.connect(lfoG).connect(trem.gain);
+  const lp = c.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 500;
+  const oscs = [[110, 0.5], [110.7, 0.5], [165, 0.18], [220.5, 0.08]].map(([f, v]) => {
+    const o = c.createOscillator(); o.frequency.value = f;
+    const g = c.createGain(); g.gain.value = v; o.connect(g).connect(lp); o.start(t); return o;
+  });
+  lp.connect(trem).connect(master).connect(c.destination);
+  lfo.start(t);
+  ambientSynth = { master, nodes: [...oscs, lfo] };
+}
+function ambientOff(quick) {
+  if (ambientFile) { ambientFile.pause(); ambientFile = null; }
+  if (ambientSynth) {
+    const c = getAudioCtx(), a = ambientSynth, ms = quick ? 0.3 : 2; ambientSynth = null; if (!c) return;
+    const t = c.currentTime;
+    a.master.gain.cancelScheduledValues(t); a.master.gain.setValueAtTime(a.master.gain.value, t);
+    a.master.gain.linearRampToValueAtTime(0, t + ms);
+    a.nodes.forEach((o) => o.stop(t + ms + 0.05));
+  }
 }
 function soundOp(op) {
   if (!lightMode) return;
-  if (op.op === 'ambient') { if (op.on) ambient.play().catch(() => {}); else ambient.pause(); }
-}
-let current;
-let animateID;
-let audioID;
-let keys;
-window.onload  = () => {
-  keys = [...document.querySelectorAll('tinker-button')].reduce((obj, btn) => {
-    obj[btn.letter.toLowerCase()] = btn
-    return obj;
-  }, {})
-}
-
-function playSound(soundLink, duration) {
-  if (soundLink) {
-    if (!audio.paused) {
-      audio.pause();
-    }
-    audio.src = soundLink;
-    audio.play();
-    setTimeout(() =>  audio.pause() , duration);
-  }
-  return;
+  if (op.op === 'ambient') { ambientWanted = !!op.on; ambientWanted ? ambientOn() : ambientOff(false); }
+  else if (op.op === 'source') { soundSource = op.v; if (ambientWanted) ambientOn(); }   // restart so the two can be compared live
 }
 
 const runKey = (key) => {
@@ -784,6 +858,7 @@ document.onkeydown = (event) => {
   else if (k === 'z') { agingPaused = !agingPaused; field = { op: 'pause', on: agingPaused }; }
   else if (k === 'm') sound = { op: 'ambient', on: true };
   else if (k === 'n') sound = { op: 'ambient', on: false };
+  else if (k === 'b') { soundSource = soundSource === 'file' ? 'synth' : 'file'; sound = { op: 'source', v: soundSource }; }
   if (field) { socket.emit('field', field); fieldOp(field); return; }
   if (sound) { socket.emit('sound', sound); soundOp(sound); return; }
   keys[event.key] ? runKey(keys[event.key]) : undefined;
@@ -816,12 +891,15 @@ control.onclick = () => {
   // make buttons and controls visible
   document.getElementById('user').classList.remove('fadeOut');
   document.getElementById('controlPanel').style.opacity = 0.6;
+  const legend = document.getElementById('legend'); if (legend) legend.hidden = false;
 };
 
 light.onclick = () => {
   // safari requires playing on input before allowing audio
   audio.muted = true;
   audio.play().then(audio.muted = false)
+  getAudioCtx();   // unlock Web Audio for the synth sounds
+  const legend = document.getElementById('legend'); if (legend) legend.hidden = true;
 
   // in light mode make it full screen and fade buttons
   document.documentElement.requestFullscreen();
