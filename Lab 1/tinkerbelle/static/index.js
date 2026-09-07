@@ -111,7 +111,8 @@ function colorAt(msAgo) {
 // when Shift is held. Two keypresses with different points make two patches; overlapping patches
 // just overlap. A gesture with no point falls back to this light's own ?point= (default centre).
 const handPoint = (params.get('point') || '50,50').split(',').map(Number);
-const handPoint2 = params.get('point2') ? params.get('point2').split(',').map(Number) : null;
+let handPoint2 = params.get('point2') ? params.get('point2').split(',').map(Number) : null;
+let pointSet = params.has('point');   // does this page have a point of its own to send with gestures?
 const hands = [];   // {t0, kind, from:[x,y], to:[x,y], ms, radius, force, mode}
 // Flowers have velocity: a hand accelerates them, they coast and slow (VEL_TAU), and their
 // displacement then drifts home (RETURN_TAU). So nothing teleports - it starts, moves, settles.
@@ -185,7 +186,34 @@ function wither(color, w) {
   c.c *= 1 - 0.8 * w; c.l *= 1 - 0.5 * w;
   return c.formatRgb();
 }
+// ---- the wizard's preview of the wall: a rectangle in the wall's aspect. Click sets the touch
+// point, shift-click the second point; both show as dots. URL point= / point2= are the start values.
+// The light page reports its aspect when it connects or resizes, so the preview matches the wall.
+const preview = document.getElementById('preview');
+function placeDots() {
+  if (!preview) return;
+  const put = (id, pt) => { const d = document.getElementById(id); if (!d) return; d.hidden = !pt; if (pt) { d.style.left = pt[0] + '%'; d.style.top = pt[1] + '%'; } };
+  put('dot1', pointSet ? handPoint : null); put('dot2', handPoint2);
+}
+let previewAspect = 16 / 9;
+function setAspect(ratio) {
+  if (!preview) return;
+  if (ratio > 0) previewAspect = ratio;
+  const w = parseFloat(getComputedStyle(preview).width) || 320;   // hidden at load: fall back to the CSS width
+  preview.style.height = Math.round(w / previewAspect) + 'px';
+}
+if (preview && !lightMode) {
+  setAspect(params.get('aspect') ? Number(params.get('aspect').split(':')[0]) / Number(params.get('aspect').split(':')[1] || 1) : 16 / 9);
+  placeDots();
+  preview.addEventListener('click', (e) => {
+    const r = preview.getBoundingClientRect();
+    const pt = [Math.round((e.clientX - r.left) / r.width * 1000) / 10, Math.round((e.clientY - r.top) / r.height * 1000) / 10];
+    if (e.shiftKey) handPoint2 = pt; else { handPoint[0] = pt[0]; handPoint[1] = pt[1]; pointSet = true; }
+    placeDots();
+  });
+}
 function fieldOp(op) {
+  if (op.op === 'aspect') { setAspect(op.v); return; }        // sent by light pages; only the wizard's preview cares
   if (lightMode !== 'blobs') return;
   if (op.op === 'advance') fieldTime += op.ms;
   else if (op.op === 'reset') resetField();
@@ -468,7 +496,7 @@ if (lightMode === 'blobs') {
     W = window.innerWidth; H = window.innerHeight;
     canvas.width = Math.round(W * dpr); canvas.height = Math.round(H * dpr);
   };
-  resize(); window.addEventListener('resize', resize);
+  resize(); window.addEventListener('resize', () => { resize(); socket.emit('field', { op: 'aspect', v: W / H }); });
   glowSprite = buildGlowSprite();
   for (const k of ['daisy', 'cherry', 'mum', 'starY', 'starW']) centreSprites[k] = buildCentreSprite(k);
   shape = blobSpots.map((_, i) => isGlow[i] ? glowSprite : makeCanvas());
@@ -830,7 +858,7 @@ document.onkeydown = (event) => {
   }
   // gestures: what the visitor's hand is doing at the wall. The touch point goes along only if
   // this page's URL names one (?point=, or ?point2= with Shift), so a light page keeps its own otherwise.
-  const pt = event.shiftKey && handPoint2 ? handPoint2 : params.get('point') ? handPoint : null;
+  const pt = event.shiftKey && handPoint2 ? handPoint2 : pointSet ? handPoint : null;
   const at = pt ? { x: pt[0], y: pt[1] } : {};
   const arrows = { ArrowRight: 'right', ArrowLeft: 'left', ArrowUp: 'up', ArrowDown: 'down' };
   let gesture = null;
@@ -867,6 +895,7 @@ document.onkeydown = (event) => {
 
 
 socket.on('connect', () => {
+  if (lightMode === 'blobs') socket.emit('field', { op: 'aspect', v: W / H });   // so the wizard's preview matches this wall
   socket.on('hex', (val) => { current = val; paint(val) })
   socket.on('hand', (v) => { triggerHand(v.kind, v) })
   socket.on('poke', (v) => { triggerPoke(v || {}) })
@@ -891,7 +920,8 @@ control.onclick = () => {
   // make buttons and controls visible
   document.getElementById('user').classList.remove('fadeOut');
   document.getElementById('controlPanel').style.opacity = 0.6;
-  const legend = document.getElementById('legend'); if (legend) legend.hidden = false;
+  for (const id of ['legend', 'preview']) { const el = document.getElementById(id); if (el) el.hidden = false; }
+  setAspect(); placeDots();   // now visible, so the height can be laid out
 };
 
 light.onclick = () => {
@@ -899,7 +929,7 @@ light.onclick = () => {
   audio.muted = true;
   audio.play().then(audio.muted = false)
   getAudioCtx();   // unlock Web Audio for the synth sounds
-  const legend = document.getElementById('legend'); if (legend) legend.hidden = true;
+  for (const id of ['legend', 'preview']) { const el = document.getElementById(id); if (el) el.hidden = true; }
 
   // in light mode make it full screen and fade buttons
   document.documentElement.requestFullscreen();

@@ -128,7 +128,7 @@ Start the server from the [`tinkerbelle`](tinkerbelle/) folder (`python tinker.p
 | Light (projector) | `http://<ip>:5001/?mode=blobs&season=cherry&fps=1` | click **Tinkerbelle** once (fullscreen, and unlocks audio) |
 | Wizard (laptop) | `http://<ip>:5001/?point=30,50&point2=70,50` | click **Wizard**; keep this window visible during a take |
 
-`point` and `point2` are where the visitor's hand is, in percent across and down the wall. Gestures land at `point`; hold **Shift** with a gesture and it lands at `point2`, so two people touching two places is two keypresses. Light-page options: `regrow=45` (seconds a killed patch stays dark), `petallife=4.5`, `exposure=1.6`, `band=70`, `wide=110`, `sat=0.6,0.9`, `full=0.25`, `pale=0.15`, `sfx=0.35`, `amb=0.6`, `count=320`, `dir=right`.
+The wizard page shows a small preview rectangle of the wall. Click it where the visitor's hand is to set the touch point; shift-click sets a second point. Both show as dots, and the URL's `point` / `point2` (percent across, down) are the starting values. Gestures land at the first point; hold **Shift** with a gesture and it lands at the second, so two people touching two places is two keypresses. Light-page options: `regrow=45` (seconds a killed patch stays dark), `petallife=4.5`, `exposure=1.6`, `band=70`, `wide=110`, `sat=0.6,0.9`, `full=0.25`, `pale=0.15`, `sfx=0.35`, `amb=0.6`, `count=320`, `dir=right`.
 
 | Group | Key | What the light does |
 |---|---|---|
