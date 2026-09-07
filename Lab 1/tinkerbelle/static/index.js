@@ -130,7 +130,7 @@ function triggerHand(kind, opts) {
   if (lightMode !== 'blobs') return;                 // the wizard page only sends; nothing to move here
   const x = (opts && opts.x) ?? handPoint[0], y = (opts && opts.y) ?? handPoint[1];
   const vec = dirVector((opts && opts.dir) || defaultDir);
-  playSfx(kind);
+  playSfx(kind, x);
   if (KILL[kind]) killAround(x, y, KILL[kind]);
   const half = g.travel / 2;
   hands.push({ t0: performance.now(), kind, ...g, hit: new Set(),
@@ -281,6 +281,7 @@ function triggerPoke(opts) {
   const x = (opts && opts.x) ?? handPoint[0], y = (opts && opts.y) ?? handPoint[1];
   const vec = dirVector((opts && opts.dir) || defaultDir);
   const now = performance.now();
+  playSfx('flick', x);
   blobSpots.forEach(([bx, by], i) => {
     if (isGlow[i] || deadAt[i] !== null) return;
     const px = bx + offX[i] - x, py = by + offY[i] - y;
@@ -770,11 +771,14 @@ function playSound(soundLink, duration) {   // the original per-key sound (needs
 // reloading is enough. Synth: if a file is missing (or the wizard forces synth with B) the sound is
 // made with Web Audio instead. Browsers refuse audio until the page has been clicked once: click
 // "Tinkerbelle" on the light page before the take.
-//   M / N   ambient on / off      B  file <-> synth      Space, arrows  effect with the gesture
+//   M / N   ambient on / off      B  synth <-> files      Space, arrows, Enter  a note with the gesture
+// Gestures play notes: a pentatonic scale in the key of the ambient pad (A), picked by the touch
+// point's x across the wall (left low, right high), with a ~2 s release so gestures a moment apart
+// ring together as a chord. Two people at two points land on the same scale, so they harmonize.
 const clamp01 = (v) => Math.min(1, Math.max(0, v));
 const sfxVol = clamp01(Number(params.get('sfx') ?? 0.35)), ambVol = clamp01(Number(params.get('amb') ?? 0.6));
 let soundFiles = {};        // {ambient, tap, swipe} -> url, as found at page load
-let soundSource = 'file';   // 'file': use a file when there is one, else synth. 'synth': always synth
+let soundSource = 'synth';  // 'synth': notes and pad from Web Audio (default). 'file': use static/sounds/ files when present
 let ambientWanted = false, ambientFile = null, ambientSynth = null, actx = null;
 if (lightMode) fetch('sounds').then((r) => r.json()).then((j) => { soundFiles = j; }).catch(() => {});
 function getAudioCtx() {
@@ -785,10 +789,27 @@ function getAudioCtx() {
 }
 const useFile = (name) => soundSource === 'file' && soundFiles[name];
 const soundLabel = () => `${soundSource}${Object.keys(soundFiles).length ? ' [' + Object.keys(soundFiles).join(',') + ']' : ' [no files]'}`;
-function playSfx(kind) {
-  if (!lightMode || !(kind === 'tap' || kind === 'swipe')) return;
-  if (useFile(kind)) { const a = new Audio(soundFiles[kind]); a.volume = sfxVol; a.play().catch(() => {}); return; }
-  kind === 'tap' ? synthTap() : synthSwipe();
+function playSfx(kind, x) {
+  if (!lightMode) return;
+  const file = kind === 'flick' ? 'swipe' : kind;            // in file mode a flick borrows the swipe sound
+  if (useFile(file)) { const a = new Audio(soundFiles[file]); a.volume = sfxVol; a.play().catch(() => {}); return; }
+  playNote(x ?? 50, kind);
+}
+// A major pentatonic over two octaves, A3..A5; the pad's drone is A2 (110 Hz)
+const SCALE = [220, 246.94, 277.18, 329.63, 369.99, 440, 493.88, 554.37, 659.26, 739.99, 880];
+function playNote(x, kind) {
+  const c = getAudioCtx(); if (!c) return;
+  const t = c.currentTime, idx = Math.min(SCALE.length - 1, Math.max(0, Math.floor(x / 100 * SCALE.length)));
+  const f = SCALE[idx], rel = 2.0, vol = sfxVol * (kind === 'flick' ? 0.9 : 0.7);
+  const g = c.createGain();
+  g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(vol, t + 0.006);
+  g.gain.setTargetAtTime(0.0001, t + 0.05, rel / 4);          // ~2 s release
+  const lp = c.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.setValueAtTime(f * 5, t); lp.frequency.exponentialRampToValueAtTime(f * 1.6, t + rel);
+  [[1, 'triangle', 1], [2, 'sine', 0.25], [1.005, 'sine', 0.3]].forEach(([mul, type, v]) => {   // fundamental, an octave, a slow beat
+    const o = c.createOscillator(); o.type = type; o.frequency.value = f * mul;
+    const og = c.createGain(); og.gain.value = v; o.connect(og).connect(lp); o.start(t); o.stop(t + rel + 0.3);
+  });
+  lp.connect(g).connect(c.destination);
 }
 // tap: a soft low-passed pluck, 400-600 Hz, 5 ms attack (no click), 300 ms decay
 function synthTap() {
