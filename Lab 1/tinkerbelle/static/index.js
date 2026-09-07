@@ -18,7 +18,7 @@ const control = document.getElementById('control');
 //     full=<frac>    share of fully saturated flowers (default 0.25)
 //     pale=<frac>    share of pale flowers: light with a clear tint (default 0.15)
 //   seed=<n>      change the layout
-//   tone=<hex>    starting colour before the wizard sends anything (e.g. tone=ff2fa0)
+//   tone=<hex>    starting colour before the wizard sends anything (default: the season's base colour)
 //   regrow=<s>    seconds a gone flower's slot stays dark before a new bud (default 45); buds take 10 s more to open
 //   exposure=<x>  starting brightness multiplier, 0.6..2.0 (default 1.6); the wizard's [ and ] step it
 //   petallife=<s> seconds a detached petal takes to fade (default 4.5)
@@ -89,7 +89,7 @@ const colorHistory = [];
 if (params.get('tone')) colorHistory.push([0, '#' + params.get('tone').replace('#', '')]);
 function colorAt(msAgo) {
   const t = performance.now() - msAgo;
-  let best = colorHistory[0] && colorHistory[0][1];
+  let best = colorHistory[0] ? colorHistory[0][1] : SEASONS[season].base;   // before the wizard sends anything: the season's base
   for (const [when, c] of colorHistory) {
     if (when <= t) best = c; else break;
   }
