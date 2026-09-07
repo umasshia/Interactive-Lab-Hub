@@ -19,9 +19,14 @@ const control = document.getElementById('control');
 //     pale=<frac>    share of pale flowers: light with a clear tint (default 0.15)
 //   seed=<n>      change the layout
 //   tone=<hex>    starting colour before the wizard sends anything (default: the season's base colour)
-//   gather=<s>    seconds a touched flower's petals drift before flying home and recomposing (default 12)
+//   gather=<s>    centre of the window in which a touched flower's petals start flying home: each petal
+//                 leaves between 0.6x and 1.6x this and takes 4-7 s, so a flower reassembles petal by petal (default 12)
+//   bump=<0..1>   how brightly two petals flash when they collide (default 0.7)
 //   exposure=<x>  starting brightness multiplier, 0.6..2.0 (default 1.6); the wizard's [ and ] step it
 //   wave=<0..1>   how far a flare travels when a flying petal hits a flower (default 0.3)
+//
+// All motion integrates real elapsed time (dt, capped at 50 ms so a stall never teleports anything);
+// nothing steps per frame, so 30 and 220 fps look the same.
 //   sfx=<0..1>    volume of the tap/swipe effects (default 0.35); amb=<0..1> ambient volume (default 0.6)
 //   point=x,y     touch point in %, used when the wizard's gesture carries none (default 50,50)
 //
@@ -158,9 +163,12 @@ const RETURN_TAU = 4500;                 // ms time-constant for displaced flowe
 const BUD_MS = 10000;                                      // bud -> full size
 const WITHER_MS = 22000;                                   // the last stretch of a life: shrinks, dims, loses colour
 const gatherMs = Number(params.get('gather') || 12) * 1000;   // petals away -> start flying home (URL value in seconds)
-const RETURN_MS = 3000;                                    // the flight home, eased
-const RETURN_STAGGER = 700;                                // ms spread between the first and last petal leaving
-const away = blobSpots.map(() => 0);                       // petals still out for this slot (0 = the flower is drawn)
+const RETURN_MIN_MS = 4000, RETURN_MAX_MS = 7000;          // each petal's own flight home, eased
+const away = blobSpots.map(() => 0);                       // petals still out for this slot
+const petalTotal = blobSpots.map(() => 0), returnBegan = blobSpots.map(() => false);
+// while petals fly home the flower is drawn underneath at low alpha, ramping up as they land, so
+// there is never a frame with neither petal nor flower
+const reassembleAlpha = (i) => returnBegan[i] ? 0.15 + 0.85 * (1 - away[i] / Math.max(1, petalTotal[i])) : 0;
 const TIME_STEP_MS = 40000;                                // how far the T key jumps the field clock
 const newLifespan = () => 100000 + rand() * 100000;        // 100-200 s, so the field never ages in lockstep
 const lifespan = blobSpots.map(() => 0);   // ms, per flower; set at (re)birth
@@ -322,7 +330,11 @@ function stepFlares(now, dt) {
 }
 const PETAL_COAST = 1.2;   // s: the burst spreads, then the petal is just drifting
 const PETAL_FALL = 1.0;    // %/s: settling speed of a drifting petal
-const PETAL_BOUNCE = 0.8;  // velocity kept when two petals bounce (elastic with damping)
+const PETAL_BOUNCE = 0.45; // restitution when two petals meet: they mostly stop against each other
+const PETAL_CONTACT = 0.6; // fraction of each petal's speed kept on contact (extra damping, so clouds pile up)
+const PETAL_RADIUS = 0.35; // contact distance as a fraction of the two petals' combined length
+const SPIN_TAU = 3.0;      // s: tumble damps toward a gentle rock
+const bump = Math.min(1, Math.max(0, Number(params.get('bump') ?? 0.7)));   // flash on contact
 const petalGrid = new Map();   // cell -> [petal indices], rebuilt each frame for petal-petal collisions
 let petalBounces = 0;          // count of petal-petal bounces so far (shown in the ?fps=1 overlay)
 function killAround(x, y, r) {
@@ -371,10 +383,10 @@ function die(i, vec, now) {
     else     { ang = Math.atan2(y - drawY[i], x - drawX[i]) + (rand() - 0.5) * 1.0; speed = (7 + rand() * 9) * long / 100; }   // tap/swipe: outward
     petals.push({ sprite, x, y, len, w: ph * SPECIES[species[i]].width * p.w * f * (sx + sy) / 2,
       ang: Math.atan2(dx, -dy), vx: Math.cos(ang) * speed, vy: Math.sin(ang) * speed,
-      born: now, spin: (rand() - 0.5) * (vec ? 2 : 3), sway: rand() * 6.28, hits: new Set([i]),
-      home: i, petal: p, leaveAt: now + gatherMs + rand() * RETURN_STAGGER, ret: null });
+      born: now, spin: (rand() - 0.5) * (vec ? 0.7 : 1.0), sway: rand() * 6.28, hits: new Set([i]), flash: -1e9,
+      home: i, petal: p, leaveAt: now + gatherMs * (0.6 + rand()), retMs: RETURN_MIN_MS + rand() * (RETURN_MAX_MS - RETURN_MIN_MS), ret: null });
   }
-  away[i] = petalsOf[i].length;
+  away[i] = petalTotal[i] = petalsOf[i].length; returnBegan[i] = false;
   deadAt[i] = now;
   offX[i] = offY[i] = velX[i] = velY[i] = bloom[i] = 0;   // no drifting home for the dead
   onFlowerGone(i, now);
@@ -398,7 +410,7 @@ function petalHome(i, p, now) {
 // a petal landed: when the last one is home the flower is drawn again, with a brief glow
 function petalLanded(i, now) {
   if (--away[i] > 0) return;
-  deadAt[i] = null; away[i] = 0;
+  deadAt[i] = null; away[i] = 0; returnBegan[i] = false;
   offX[i] = offY[i] = velX[i] = velY[i] = 0;
   flare[i] = Math.max(flare[i], 1.2);
 }
@@ -543,7 +555,7 @@ function resetField(animated) {
     if (animated) { resetFrom[i] = deadAt[i] !== null ? [0.25, 0, 0] : lifeLook(i); resetAt[i] = now; }
     rebirth(i);
     birth[i] = fieldTime - BUD_MS - rand() * (lifespan[i] - BUD_MS - WITHER_MS);
-    away[i] = 0;
+    away[i] = 0; returnBegan[i] = false;
   });
   petals.length = 0;
   ffLeft = 0;
@@ -787,7 +799,7 @@ function renderBlobs() {
     // where in its life this flower is. A touched flower is not drawn while its petals are away.
     let life = [1, 1, 0];
     if (!isGlow[i]) {
-      if (deadAt[i] !== null) return;
+      if (deadAt[i] !== null && !returnBegan[i]) return;   // petals away; drawn again (faintly at first) once they start home
       if (fieldTime - birth[i] >= lifespan[i]) {
         onFlowerGone(i, now); rebirth(i);      // withered away quietly; a new bud starts at once, so only touched slots go dark
       }
@@ -804,7 +816,7 @@ function renderBlobs() {
     let [dx, dy] = wanderAt(i, now);
     let scale = (1 + 0.10 * breathe) * life[0];
     let push = 0;
-    const visibility = life[1];
+    const visibility = life[1] * (deadAt[i] !== null ? reassembleAlpha(i) : 1);
     dx += offX[i] + apX[i]; dy += offY[i] + apY[i];
     const speed = Math.hypot(velX[i], velY[i]);
     push += Math.min(speed / 25, 1) * 0.8;                    // moving flowers glow
@@ -847,16 +859,18 @@ function renderBlobs() {
   // detached petals: the burst slows, then each petal drifts and tumbles about the wall, bouncing
   // off the edges and off other petals, until its gather time; then it flies home along an eased
   // path and the flower recomposes when its last petal lands. (world px; one drawImage each)
-  const petalCoast = Math.exp(-dt / PETAL_COAST), fall = PETAL_FALL * long / 100;
+  const petalCoast = Math.exp(-dt / PETAL_COAST), fall = PETAL_FALL * long / 100, spinDamp = Math.exp(-dt / SPIN_TAU);
   for (const p of petals) {
     if (p.ret) continue;
-    if (now >= p.leaveAt) { p.ret = { t0: now, x: p.x, y: p.y, ang: p.ang }; continue; }
+    if (now >= p.leaveAt) { p.ret = { t0: now, x: p.x, y: p.y, ang: p.ang }; returnBegan[p.home] = true; continue; }
     p.vx = p.vx * petalCoast + Math.sin(now / 900 + p.sway) * 0.3 * fall * (1 - petalCoast);
     p.vy = p.vy * petalCoast + fall * (1 - petalCoast);
-    p.x += p.vx * dt; p.y += p.vy * dt; p.ang += p.spin * dt;
+    p.spin *= spinDamp;                                       // tumble settles ...
+    p.x += p.vx * dt; p.y += p.vy * dt;
+    p.ang += (p.spin + 0.45 * Math.cos(now / 650 + p.sway) / 0.65) * dt;   // ... into a gentle rock (derivative of 0.45*sin)
     const m = p.len * 0.5;                                    // keep on the wall: bounce off the edges
-    if (p.x < m) { p.x = m; p.vx = Math.abs(p.vx) * PETAL_BOUNCE; } else if (p.x > W - m) { p.x = W - m; p.vx = -Math.abs(p.vx) * PETAL_BOUNCE; }
-    if (p.y < m) { p.y = m; p.vy = Math.abs(p.vy) * PETAL_BOUNCE; } else if (p.y > H - m) { p.y = H - m; p.vy = -Math.abs(p.vy) * PETAL_BOUNCE; p.vx += (rand() - 0.5) * fall; }
+    if (p.x < m) { p.x = m; p.vx = Math.abs(p.vx) * 0.8; } else if (p.x > W - m) { p.x = W - m; p.vx = -Math.abs(p.vx) * 0.8; }
+    if (p.y < m) { p.y = m; p.vy = Math.abs(p.vy) * 0.8; } else if (p.y > H - m) { p.y = H - m; p.vy = -Math.abs(p.vy) * 0.8; }
     if (Math.hypot(p.vx, p.vy) > 0.03 * long) {                 // only a petal still flying can hit a flower
       const px = p.x / W * 100, py = p.y / H * 100;
       for (const j of nearCells(px, py)) {
@@ -883,17 +897,20 @@ function renderBlobs() {
         if (other === cell && kj <= ki) continue;
         const p = petals[ki], q = petals[kj];
         if (p.home === q.home && now - p.born < 300) continue;
-        const dx = q.x - p.x, dy = q.y - p.y, d = Math.hypot(dx, dy), r = (p.len + q.len) * 0.28;
+        const dx = q.x - p.x, dy = q.y - p.y, d = Math.hypot(dx, dy), r = (p.len + q.len) * PETAL_RADIUS;
         if (d >= r || d < 0.01) continue;
         const nx = dx / d, ny = dy / d;
         const vp = p.vx * nx + p.vy * ny, vq = q.vx * nx + q.vy * ny;
         if (vp - vq <= 0) continue;                              // already separating
         const push = (r - d) / 2;                                // separate so they don't stick
         p.x -= nx * push; p.y -= ny * push; q.x += nx * push; q.y += ny * push;
-        petalBounces++;
-        const jp = (vq - vp) * PETAL_BOUNCE;                     // swap the normal components, damped
+        const hit = vp - vq > 0.04 * long;                       // a real hit, not two resting petals jostling: only those flash and count
+        if (hit) { petalBounces++; p.flash = q.flash = now; }
+        const jp = (vq - vp) * (1 + PETAL_BOUNCE) / 2;           // impulse along the normal (restitution PETAL_BOUNCE)
         p.vx += nx * jp; p.vy += ny * jp; q.vx -= nx * jp; q.vy -= ny * jp;
-        p.spin += (rand() - 0.5) * 2; q.spin += (rand() - 0.5) * 2;
+        p.vx *= PETAL_CONTACT; p.vy *= PETAL_CONTACT; q.vx *= PETAL_CONTACT; q.vy *= PETAL_CONTACT;   // and both lose speed
+        const kick = Math.min(0.6, Math.abs(jp) / long * 8);     // a nudge to the tumble sized by the impulse, not by frame count
+        p.spin += (rand() - 0.5) * kick; q.spin += (rand() - 0.5) * kick;
       }
     }
   }
@@ -901,16 +918,19 @@ function renderBlobs() {
   for (let k = petals.length - 1; k >= 0; k--) {
     const p = petals[k];
     if (p.ret) {
-      const u = Math.min(1, (now - p.ret.t0) / RETURN_MS), e = d3.easeSinInOut(u);
+      const u = Math.min(1, (now - p.ret.t0) / p.retMs), e = d3.easeSinInOut(u);
       const [hx, hy, ha] = petalHome(p.home, p.petal, now);
       let da = ha - p.ret.ang; da -= Math.round(da / (2 * Math.PI)) * 2 * Math.PI;   // turn the short way
       p.x = p.ret.x + (hx - p.ret.x) * e; p.y = p.ret.y + (hy - p.ret.y) * e; p.ang = p.ret.ang + da * e;
-      if (u >= 1) { petals.splice(k, 1); petalLanded(p.home, now); continue; }
+      // landed: the flower sprite was drawn under it this frame (returnBegan is set), so it can go
+      if (u >= 1 && returnBegan[p.home]) { petals.splice(k, 1); petalLanded(p.home, now); continue; }
     }
     ctx.save();
     ctx.translate(p.x, p.y); ctx.rotate(p.ang);
     ctx.globalAlpha = 0.95;
     ctx.drawImage(p.sprite, -p.w / 2, -p.len / 2, p.w, p.len);
+    const fl = 1 - (now - p.flash) / 200;                      // a 200 ms flash on contact, drawn again additively
+    if (fl > 0) { ctx.globalAlpha = fl * bump; ctx.drawImage(p.sprite, -p.w / 2, -p.len / 2, p.w, p.len); }
     ctx.restore();
   }
 
