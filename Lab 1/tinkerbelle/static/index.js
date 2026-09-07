@@ -22,6 +22,7 @@ const control = document.getElementById('control');
 //   regrow=<s>    seconds a gone flower's slot stays dark before a new bud (default 45); buds take 10 s more to open
 //   exposure=<x>  starting brightness multiplier, 0.6..2.0 (default 1.6); the wizard's [ and ] step it
 //   petallife=<s> seconds a detached petal takes to fade (default 4.5)
+//   wave=<0..1>   how far a flare travels when a flying petal hits a flower (default 0.6)
 //   sfx=<0..1>    volume of the tap/swipe effects (default 0.35); amb=<0..1> ambient volume (default 0.6)
 //   point=x,y     touch point in %, used when the wizard's gesture carries none (default 50,50)
 //
@@ -264,7 +265,59 @@ function plainFade(now) {
 const KILL = { tap: 11, swipe: 11, flick: 5 };   // radius (tap/swipe) or half-width of the line (flick), % of screen
 const FLICK_LEN = 45;                          // how far along the swipe direction a flick reaches, %
 const pendingKills = [];   // {i, at, vec}: deaths staggered by a few hundred ms so a patch/line dies as a sweep
-const petals = [];         // {sprite, x, y, len, w, vx, vy, born, life, ang, spin, sway}  world px
+const petals = [];         // {sprite, x, y, len, w, vx, vy, born, life, ang, spin, sway, hits}  world px
+
+// ---- collisions: a flying petal that crosses a living flower makes it flare (brightness up
+// sharply, decaying over ~1.5 s). 150 ms later the flower passes a weaker flare to its neighbours;
+// each hop keeps `wave` of the strength, so a wave travels a few flowers and dies. Nothing dies.
+// A coarse grid of the living flowers, rebuilt each frame, keeps the checks to a few per petal.
+const waveKeep = Math.min(1, Math.max(0, Number(params.get('wave') ?? 0.6)));
+const flare = blobSpots.map(() => 0), flareLock = blobSpots.map(() => 0);   // strength; time a flower is immune to a hop
+const pendingHops = [];        // {at, from, strength}
+const FLARE_TAU = 0.5;         // s: e-fold; ~1.5 s to fade
+const HOP_MS = 150, HOP_RADIUS = 8, HOP_MIN = 0.08;   // radius in % of screen
+const GRID = 8;                // cell size, % of screen
+const grid = new Map();        // "cx,cy" -> [flower indices], living flowers only
+const cellKey = (x, y) => ((x / GRID) | 0) + ',' + ((y / GRID) | 0);
+function rebuildGrid() {
+  grid.clear();
+  for (let i = 0; i < blobSpots.length; i++) {
+    if (isGlow[i] || deadAt[i] !== null) continue;
+    const k = cellKey(blobSpots[i][0] + offX[i] + apX[i], blobSpots[i][1] + offY[i] + apY[i]);
+    const cell = grid.get(k); cell ? cell.push(i) : grid.set(k, [i]);
+  }
+}
+function* nearCells(x, y) {   // the cell holding (x, y) and its eight neighbours
+  const cx = (x / GRID) | 0, cy = (y / GRID) | 0;
+  for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) { const c = grid.get((cx + a) + ',' + (cy + b)); if (c) yield* c; }
+}
+function flareFlower(i, strength, now) {
+  if (strength <= flare[i]) return;
+  flare[i] = Math.min(1.5, strength);
+  const next = strength * waveKeep;
+  if (next >= HOP_MIN) pendingHops.push({ at: now + HOP_MS, from: i, strength: next });
+}
+function stepFlares(now, dt) {
+  const k = Math.exp(-dt / FLARE_TAU);
+  for (let i = 0; i < flare.length; i++) if (flare[i] > 0.001) flare[i] *= k; else flare[i] = 0;
+  for (let h = pendingHops.length - 1; h >= 0; h--) {
+    const hop = pendingHops[h]; if (hop.at > now) continue;
+    pendingHops.splice(h, 1);
+    if (deadAt[hop.from] !== null) continue;
+    const fx = blobSpots[hop.from][0] + offX[hop.from], fy = blobSpots[hop.from][1] + offY[hop.from];
+    const near = [];                                            // the two nearest free neighbours, so a wave is a line of flowers, not a flood
+    for (const j of nearCells(fx, fy)) {
+      if (j === hop.from || flareLock[j] > now) continue;
+      const d = Math.hypot(blobSpots[j][0] + offX[j] - fx, blobSpots[j][1] + offY[j] - fy);
+      if (d <= HOP_RADIUS) near.push([d, j]);
+    }
+    near.sort((a, b) => a[0] - b[0]);
+    for (const [, j] of near.slice(0, 2)) {
+      flareLock[j] = now + 1200;                                // so the wave moves outward and doesn't bounce back
+      flareFlower(j, hop.strength, now);
+    }
+  }
+}
 const petalLifeMs = Number(params.get('petallife') || 4.5) * 1000;
 const PETAL_COAST = 1.2;   // s: the burst spreads, then the petal is just falling
 const PETAL_FALL = 2.2;    // %/s: settling speed of a falling petal
@@ -314,7 +367,7 @@ function die(i, vec, now) {
     else     { ang = Math.atan2(y - drawY[i], x - drawX[i]) + (rand() - 0.5) * 1.0; speed = (7 + rand() * 9) * long / 100; }   // tap/swipe: outward
     petals.push({ sprite, x, y, len, w: ph * SPECIES[species[i]].width * p.w * f * (sx + sy) / 2,
       ang: Math.atan2(dx, -dy), vx: Math.cos(ang) * speed, vy: Math.sin(ang) * speed,
-      born: now, life: petalLifeMs * (0.9 + rand() * 0.2), spin: (rand() - 0.5) * (vec ? 2 : 3), sway: rand() * 6.28 });
+      born: now, life: petalLifeMs * (0.9 + rand() * 0.2), spin: (rand() - 0.5) * (vec ? 2 : 3), sway: rand() * 6.28, hits: new Set([i]) });
   }
   deadAt[i] = now;
   offX[i] = offY[i] = velX[i] = velY[i] = bloom[i] = 0;   // no drifting home for the dead
@@ -635,12 +688,13 @@ function renderBlobs() {
   if (petals.length >= petalPeak || now - petalPeakAt > 2000) { petalPeak = petals.length; petalPeakAt = now; }
   if (++fpsCount && now - fpsAt >= 1000) {
     window.fpsLast = fpsCount * 1000 / (now - fpsAt); fpsCount = 0; fpsAt = now;
-    if (fpsBox) fpsBox.textContent = `${window.fpsLast.toFixed(0)} fps  ${petalPeak} petals  exposure ${exposure.toFixed(1)}  sound ${soundLabel()}`;
+    if (fpsBox) fpsBox.textContent = `${window.fpsLast.toFixed(0)} fps  ${petalPeak} petals  ${flare.filter((f) => f > 0.05).length} flaring  exposure ${exposure.toFixed(1)}  sound ${soundLabel()}`;
   }
   const dt = Math.min((now - lastFrame) / 1000, 0.05); lastFrame = now;
   if (!agingPaused) fieldTime += dt * 1000;
   { const c = stepToneFade(now); if (c !== null) colorHistory.push([now, c]); }
   stepApproaches(now);
+  stepFlares(now, dt);
   // T fast-forwards: the requested aging is spread over FF_MS of real time so it can be watched
   if (ffLeft > 0) { const step = Math.min(ffLeft, ffTotal * dt * 1000 / FF_MS); fieldTime += step; ffLeft -= step; }
 
@@ -690,6 +744,7 @@ function renderBlobs() {
     if (m > 30) { offX[j] *= 30 / m; offY[j] *= 30 / m; }
   }
 
+  rebuildGrid();
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.globalCompositeOperation = 'source-over';
   ctx.globalAlpha = 1;
@@ -726,8 +781,9 @@ function renderBlobs() {
     push += Math.min(speed / 25, 1) * 0.8;                    // moving flowers glow
     push += bloom[i] * 1.2;                                   // held flowers glow more
     push += apTwinkle[i] * 0.9;                               // approached flowers twinkle
+    push += flare[i] * 1.3;                                   // hit by a petal: flares
     push = Math.min(push, 1.6);
-    scale *= 1 + 0.18 * Math.min(speed / 25, 1) + 0.45 * bloom[i];   // and open up
+    scale *= 1 + 0.18 * Math.min(speed / 25, 1) + 0.45 * bloom[i] + 0.12 * Math.min(flare[i], 1);   // and open up
 
     // colour: this flower's own shade of the (delayed) tone; re-tint only when it changed
     const tone = colorAt(blobDelay[i]) || '#000';
@@ -768,6 +824,13 @@ function renderBlobs() {
     p.vx = p.vx * petalCoast + Math.sin(now / 900 + p.sway) * 0.3 * fall * (1 - petalCoast);
     p.vy = p.vy * petalCoast + fall * (1 - petalCoast);
     p.x += p.vx * dt; p.y += p.vy * dt; p.ang += p.spin * dt;
+    if (Math.hypot(p.vx, p.vy) > 0.03 * long) {                 // only a petal still flying can hit something
+      const px = p.x / W * 100, py = p.y / H * 100;
+      for (const j of nearCells(px, py)) {
+        if (p.hits.has(j)) continue;
+        if (Math.hypot(drawX[j] - p.x, drawY[j] - p.y) < drawSize[j] * 0.3) { p.hits.add(j); flareFlower(j, 1, now); }
+      }
+    }
     ctx.save();
     ctx.translate(p.x, p.y); ctx.rotate(p.ang);
     ctx.globalAlpha = Math.min(1, (1 - u) * 1.6) * 0.95;      // full for the first third, then fades out
