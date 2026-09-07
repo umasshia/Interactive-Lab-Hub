@@ -52,6 +52,14 @@ def sounds():
 				found[stem] = 'static/sounds/' + f
 	return jsonify(found)
 
+@socketio.on('approach')
+def handle_approach(val):
+	broadcast('approach', val)
+
+@socketio.on('leave')
+def handle_leave(val):
+	broadcast('leave', val)
+
 @socketio.on('field')
 def handle_field(val):
 	broadcast('field', val)

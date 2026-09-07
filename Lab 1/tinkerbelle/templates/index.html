@@ -30,6 +30,8 @@
 	       arrows       swipe: same kill, then a hand sweeps through in that direction
 	       Enter        flick: flowers along a line from the touch point die, petals fly downwind
 	       D / H        drag / hold: move or gather flowers, nothing dies
+	       A            approach: flowers near the touch point drift in, twinkle, warm (Shift+A: second point)
+	       L            leave: both approaches relax home and cool over 2 s
 	       Shift + any  the gesture lands at ?point2= instead of ?point= (two patches)
 	       T            jump the field clock forward (ages everything, shows the cycle on camera)
 	       R            reset: every slot back in full bloom (take one)
@@ -56,9 +58,10 @@
 	<tinker-button letter="5" color_code="#14b8a6" duration="5000" easing="SinInOut"></tinker-button>
 	<tinker-button letter="6" color_code="#3b6cff" duration="5000" easing="SinInOut"></tinker-button>
 
-	<!-- presence: A = someone came close (warmer, a little brighter); L = they left (cooler, dimmer) -->
-	<tinker-button letter="A" color_code="#d4577f" duration="4000" easing="SinInOut"></tinker-button>
-	<tinker-button letter="L" color_code="#3a2f6e" duration="5000" easing="SinInOut"></tinker-button>
+	<!-- whole-field presence, the Part 1 behaviour: G = warmer everywhere; K = the resting colour.
+	     (A / L are now local: approach at the touch point, leave. Handled in index.js.) -->
+	<tinker-button letter="G" color_code="#d4577f" duration="4000" easing="SinInOut"></tinker-button>
+	<tinker-button letter="K" color_code="#3a2f6e" duration="5000" easing="SinInOut"></tinker-button>
 
 	<!-- hard off -->
 	<tinker-button letter="0" color_code="#000000" duration="300" easing="Linear"></tinker-button>
@@ -70,8 +73,8 @@
 </div>
 <div id="legend" hidden>
 	<table>
-	<tr><th>Colours</th><td><b>1</b> emerald &middot; <b>2</b> violet &middot; <b>7</b> bud green &middot; <b>8</b> soft pink &middot; <b>3</b> magenta &middot; <b>4</b> gold &middot; <b>5</b> teal &middot; <b>6</b> blue &middot; <b>A</b> approach (warm rose) &middot; <b>L</b> rest (dim violet) &middot; <b>0</b> black</td></tr>
-	<tr><th>Gestures</th><td><b>Space</b> tap &middot; <b>&larr; &uarr; &rarr; &darr;</b> swipe &middot; <b>Enter</b> flick &middot; <b>D</b> drag &middot; <b>H</b> hold &middot; <b>Shift</b> + any: at the second point</td></tr>
+	<tr><th>Colours</th><td><b>1</b> emerald &middot; <b>2</b> violet &middot; <b>7</b> bud green &middot; <b>8</b> soft pink &middot; <b>3</b> magenta &middot; <b>4</b> gold &middot; <b>5</b> teal &middot; <b>6</b> blue &middot; <b>G</b> whole field warm &middot; <b>K</b> rest (dim violet) &middot; <b>0</b> black</td></tr>
+	<tr><th>Gestures</th><td><b>Space</b> tap &middot; <b>&larr; &uarr; &rarr; &darr;</b> swipe &middot; <b>Enter</b> flick &middot; <b>D</b> drag &middot; <b>H</b> hold &middot; <b>A</b> approach (drift in, twinkle, warm) &middot; <b>L</b> leave &middot; <b>Shift</b> + any: at the second point</td></tr>
 	<tr><th>Seasons</th><td><b>S</b> next season: cherry &rarr; summer &rarr; autumn (base colour fades over 5 s)</td></tr>
 	<tr><th>Field</th><td><b>T</b> age the field 40 s &middot; <b>R</b> reset to full bloom &middot; <b>Z</b> pause / resume aging</td></tr>
 	<tr><th>Sound</th><td><b>M</b> ambient on &middot; <b>N</b> ambient off &middot; <b>B</b> synth &harr; files. Gestures play pentatonic notes, low on the left of the wall, high on the right; notes within 2 s ring as a chord</td></tr>

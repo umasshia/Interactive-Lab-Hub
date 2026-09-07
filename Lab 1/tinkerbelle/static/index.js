@@ -321,6 +321,51 @@ function die(i, vec, now) {
   onFlowerGone(i, now);
 }
 
+// ---- approach (A / Shift+A): someone walks up to a spot on the wall. Flowers within APPROACH.radius
+// drift a few percent toward the point over 2 s, twinkle for about 4 s, and warm toward rose - only
+// those flowers, not the field. L releases both points: they relax home and cool over 2 s.
+// The old whole-field warm shift is on G, the resting colour on K.
+const APPROACH = { radius: 20, drift: 3.5, driftMs: 2000, twinkleMs: 4000, releaseMs: 2000, warm: '#d4577f' };
+const approaches = [null, null];   // per point slot: {x, y, t0, released}
+const apX = blobSpots.map(() => 0), apY = blobSpots.map(() => 0);   // approach displacement, % of screen
+const apWarm = blobSpots.map(() => 0), apTwinkle = blobSpots.map(() => 0);
+function triggerApproach(opts) {
+  if (lightMode !== 'blobs') return;
+  const slot = opts && opts.slot ? 1 : 0;
+  const x = (opts && opts.x) ?? (slot && handPoint2 ? handPoint2[0] : handPoint[0]);
+  const y = (opts && opts.y) ?? (slot && handPoint2 ? handPoint2[1] : handPoint[1]);
+  approaches[slot] = { x, y, t0: performance.now(), released: null };
+}
+function releaseApproaches() {
+  const now = performance.now();
+  for (const a of approaches) if (a && a.released === null) a.released = now;
+}
+// per frame: fold every active approach into each flower's drift, warmth and twinkle
+function stepApproaches(now) {
+  const alive = approaches.some((a) => a);
+  for (let i = 0; i < blobSpots.length; i++) { apX[i] = apY[i] = 0; apWarm[i] = 0; apTwinkle[i] = 0; }
+  if (!alive) return;
+  approaches.forEach((a, k) => {
+    if (!a) return;
+    const age = now - a.t0;
+    const on = d3.easeSinInOut(Math.min(1, age / APPROACH.driftMs));
+    const off = a.released === null ? 1 : 1 - d3.easeSinInOut(Math.min(1, (now - a.released) / APPROACH.releaseMs));
+    if (off <= 0) { approaches[k] = null; return; }
+    const env = on * off;
+    const tw = a.released === null && age < APPROACH.twinkleMs ? Math.min(1, age / 300) * (1 - Math.pow(age / APPROACH.twinkleMs, 3)) : 0;
+    for (let i = 0; i < blobSpots.length; i++) {
+      if (isGlow[i] || deadAt[i] !== null) continue;
+      const [bx, by] = blobSpots[i];
+      const ddx = a.x - bx, ddy = a.y - by, d = Math.hypot(ddx, ddy);
+      if (d >= APPROACH.radius || d < 0.01) continue;
+      const fall = 1 - d / APPROACH.radius;
+      apX[i] += ddx / d * APPROACH.drift * fall * env; apY[i] += ddy / d * APPROACH.drift * fall * env;
+      apWarm[i] = Math.min(1, apWarm[i] + fall * env);
+      if (tw) apTwinkle[i] = Math.max(apTwinkle[i], tw * fall * (0.5 + 0.5 * Math.sin(now / 55 + phase[i] * 9)));   // fast, staggered
+    }
+  });
+}
+
 // ---- per-flower personality
 const phase = blobSpots.map((_, i) => i * 1.7);
 const rotation = blobSpots.map(() => rand() * 360);
@@ -595,6 +640,7 @@ function renderBlobs() {
   const dt = Math.min((now - lastFrame) / 1000, 0.05); lastFrame = now;
   if (!agingPaused) fieldTime += dt * 1000;
   { const c = stepToneFade(now); if (c !== null) colorHistory.push([now, c]); }
+  stepApproaches(now);
   // T fast-forwards: the requested aging is spread over FF_MS of real time so it can be watched
   if (ffLeft > 0) { const step = Math.min(ffLeft, ffTotal * dt * 1000 / FF_MS); fieldTime += step; ffLeft -= step; }
 
@@ -675,10 +721,11 @@ function renderBlobs() {
     let scale = (1 + 0.10 * breathe) * life[0];
     let push = 0;
     const visibility = life[1];
-    dx += offX[i]; dy += offY[i];
+    dx += offX[i] + apX[i]; dy += offY[i] + apY[i];
     const speed = Math.hypot(velX[i], velY[i]);
     push += Math.min(speed / 25, 1) * 0.8;                    // moving flowers glow
     push += bloom[i] * 1.2;                                   // held flowers glow more
+    push += apTwinkle[i] * 0.9;                               // approached flowers twinkle
     push = Math.min(push, 1.6);
     scale *= 1 + 0.18 * Math.min(speed / 25, 1) + 0.45 * bloom[i];   // and open up
 
@@ -692,6 +739,7 @@ function renderBlobs() {
     } else {
       c = tint(tone, i);
       if (life[2] > 0) c = wither(c, Math.round(life[2] * 8) / 8);   // in steps, so a withering flower re-tints 8 times, not every frame
+      if (apWarm[i] > 0.02) c = hclFade(c, APPROACH.warm)(Math.round(apWarm[i] * 0.7 * 8) / 8);   // warmer near an approach, in 8 steps
     }
     if (c !== tintedColor[i]) retint(i, c);
 
@@ -903,6 +951,7 @@ document.onkeydown = (event) => {
   }
   // gestures: what the visitor's hand is doing at the wall. The touch point goes along only if
   // this page's URL names one (?point=, or ?point2= with Shift), so a light page keeps its own otherwise.
+  const k0 = event.key.toLowerCase();
   const pt = event.shiftKey && handPoint2 ? handPoint2 : pointSet ? handPoint : null;
   const at = pt ? { x: pt[0], y: pt[1] } : {};
   const arrows = { ArrowRight: 'right', ArrowLeft: 'left', ArrowUp: 'up', ArrowDown: 'down' };
@@ -912,6 +961,8 @@ document.onkeydown = (event) => {
   else if (event.key === 'd' || event.key === 'D') gesture = { kind: 'drag', ...at };
   else if (event.key === 'h' || event.key === 'H') gesture = { kind: 'hold', ...at };
   if (gesture) { event.preventDefault(); socket.emit('hand', gesture); triggerHand(gesture.kind, gesture); return; }
+  if (k0 === 'a') { const ap = { slot: event.shiftKey ? 1 : 0, ...at }; socket.emit('approach', ap); triggerApproach(ap); return; }
+  if (k0 === 'l') { socket.emit('leave', {}); releaseApproaches(); return; }
   if (event.key === 'Enter') { event.preventDefault(); socket.emit('poke', at); triggerPoke(at); return; }
   // field clock and sound: T jump the clock forward, R reset to full bloom, Z pause/resume aging,
   // S next season (base colour fades over 5 s on the light; new flowers roll from the new palette),
@@ -945,6 +996,8 @@ socket.on('connect', () => {
   socket.on('hand', (v) => { triggerHand(v.kind, v) })
   socket.on('poke', (v) => { triggerPoke(v || {}) })
   socket.on('field', (v) => { fieldOp(v) })
+  socket.on('approach', (v) => { triggerApproach(v || {}) })
+  socket.on('leave', () => { releaseApproaches() })
   socket.on('sound', (v) => { soundOp(v) })
   socket.on('audio', (val) => {playSound(val.soundLink, val.duration);})
   socket.on('pauseAudio', (val) => {audio.pause();})
