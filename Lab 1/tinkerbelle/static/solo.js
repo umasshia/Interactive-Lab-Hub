@@ -59,7 +59,7 @@ function runSoloScript() {
         const g = dir ? { kind, dir } : { kind };
         socket.emit('hand', g); triggerHand(kind, g);
       }
-      else if (keys[action]) runKey(keys[action]);
+      else if (keys[action.toLowerCase()]) runKey(keys[action.toLowerCase()]);
     }, ms));
   }
 }

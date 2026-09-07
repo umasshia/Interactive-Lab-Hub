@@ -165,6 +165,10 @@ const birth = blobSpots.map(() => 0);      // fieldTime at which this flower bud
 const deadAt = blobSpots.map(() => null);  // real time it went, or null while alive
 const sizeMul = blobSpots.map(() => 1);
 let fieldTime = 0, agingPaused = false;
+let ffLeft = 0, ffTotal = 0;   // ms of aging still to apply from T presses; drained over FF_MS
+const FF_MS = 3000;
+const resetAt = blobSpots.map(() => -1e9), resetFrom = blobSpots.map(() => null);   // R: each flower eases from its old look
+const RESET_MS = 2000;
 // exposure: a global brightness multiplier on flower alpha, glow alpha and lightness, stepped by the wizard
 let exposure = Math.min(2, Math.max(0.6, Number(params.get('exposure') || 1.6)));
 function setExposure(v) { exposure = Math.round(Math.min(2, Math.max(0.6, v)) * 10) / 10; }
@@ -215,19 +219,43 @@ if (preview && !lightMode) {
 function fieldOp(op) {
   if (op.op === 'aspect') { setAspect(op.v); return; }        // sent by light pages; only the wizard's preview cares
   if (lightMode !== 'blobs') return;
-  if (op.op === 'advance') fieldTime += op.ms;
-  else if (op.op === 'reset') resetField();
+  if (op.op === 'advance') { ffLeft += op.ms; ffTotal = ffLeft; }
+  else if (op.op === 'reset') resetField(true);
   else if (op.op === 'pause') agingPaused = !!op.on;
   else if (op.op === 'season') { seasonOp(op.k); if (op.base) fadeTone(op.base, op.ms || 5000); }
+  else if (op.op === 'fade') fadeTone(op.hex, op.ms, op.easing);
   else if (op.op === 'exposure') setExposure(op.v);
 }
 // A fade run by the light page itself (the season change uses this). The wizard's own colour keys
 // fade on the wizard page and stream 'hex' frames; that stops if the wizard's tab is in the
 // background, because browsers pause animation frames there. The light page is always rendering.
-let toneFade = null;   // {from, to, t0, ms}
-function fadeTone(hex, ms) {
-  const from = colorHistory.length ? colorHistory[colorHistory.length - 1][1] : '#000';
-  toneFade = { f: d3.interpolateHcl(from, hex), t0: performance.now(), ms };
+let toneFade = null;   // {f: t -> colour, t0, ms, ease}
+// HCL fade that reaches black. d3.hcl('#000') has chroma NaN and the interpolator keeps the
+// start's value for a NaN end, so a plain interpolateHcl to black stops at a dark version of
+// the start colour. Give achromatic ends an explicit chroma of 0 and the other end's hue.
+function hclFade(a, b) {
+  const A = d3.hcl(a), B = d3.hcl(b);
+  if (isNaN(A.c)) A.c = 0; if (isNaN(B.c)) B.c = 0;
+  if (isNaN(A.h)) A.h = isNaN(B.h) ? 0 : B.h; if (isNaN(B.h)) B.h = A.h;
+  return d3.interpolateHcl(A, B);
+}
+function fadeTone(hex, ms, easing) {
+  if (!lightMode) return;                                            // a wizard page shows nothing
+  const from = lightMode === 'blobs' ? colorAt(0) : (current || '#000');   // from what is showing now
+  toneFade = { f: hclFade(from, hex), t0: performance.now(), ms: Number(ms) || 5000, ease: eases[easing] || d3.easeSinInOut };
+  if (lightMode !== 'blobs') requestAnimationFrame(plainFade);       // blobs mode steps it in its own render loop
+}
+function stepToneFade(now) {
+  if (!toneFade) return null;
+  const u = Math.min(1, (now - toneFade.t0) / toneFade.ms);
+  const c = toneFade.f(toneFade.ease(u));
+  if (u >= 1) toneFade = null;
+  return c;
+}
+function plainFade(now) {
+  const c = stepToneFade(now); if (c === null) return;
+  current = c; paint(c);
+  if (toneFade) requestAnimationFrame(plainFade);
 }
 
 
@@ -380,12 +408,15 @@ function rebirth(i) {
   offX[i] = offY[i] = velX[i] = velY[i] = bloom[i] = 0;
 }
 // everything in bloom, at staggered ages, so nothing withers in lockstep (also the starting state)
-function resetField() {
+function resetField(animated) {
+  const now = performance.now();
   blobSpots.forEach((_, i) => {
     if (isGlow[i]) return;
+    if (animated) { resetFrom[i] = deadAt[i] !== null ? [0.25, 0, 0] : lifeLook(i); resetAt[i] = now; }
     rebirth(i);
     birth[i] = fieldTime - BUD_MS - rand() * (lifespan[i] - BUD_MS - WITHER_MS);
   });
+  ffLeft = 0;
 }
 function tint(color, i) {
   const c = d3.hcl(color);
@@ -562,11 +593,9 @@ function renderBlobs() {
   }
   const dt = Math.min((now - lastFrame) / 1000, 0.05); lastFrame = now;
   if (!agingPaused) fieldTime += dt * 1000;
-  if (toneFade) {
-    const u = Math.min(1, (now - toneFade.t0) / toneFade.ms);
-    colorHistory.push([now, toneFade.f(d3.easeSinInOut(u))]);
-    if (u >= 1) toneFade = null;
-  }
+  { const c = stepToneFade(now); if (c !== null) colorHistory.push([now, c]); }
+  // T fast-forwards: the requested aging is spread over FF_MS of real time so it can be watched
+  if (ffLeft > 0) { const step = Math.min(ffLeft, ffTotal * dt * 1000 / FF_MS); fieldTime += step; ffLeft -= step; }
 
   // scheduled deaths whose moment has come
   for (let k = pendingKills.length - 1; k >= 0; k--) {
@@ -632,6 +661,10 @@ function renderBlobs() {
         onFlowerGone(i, now); rebirth(i);      // withered away quietly; a new bud starts at once, so only touched slots go dark
       }
       life = lifeLook(i);
+      if (now - resetAt[i] < RESET_MS && resetFrom[i]) {           // R: ease scale, alpha and wither from the old look
+        const u = d3.easeSinInOut((now - resetAt[i]) / RESET_MS), f = resetFrom[i];
+        life = [f[0] + (life[0] - f[0]) * u, f[1] + (life[1] - f[1]) * u, f[2] + (life[2] - f[2]) * u, life[3]];
+      }
       const blur = Math.round((life[3] + TIER[tierOf[i]].blur) * 4) / 4;   // quarter-px steps: a recompose 8 times per life, not per frame
       if (blur !== shapeBlur[i]) { compose(i, blur); tintedColor[i] = null; }
     }
@@ -654,7 +687,7 @@ function renderBlobs() {
     if (isGlow[i]) {
       c = glowSrc[i] >= 0 ? tint(tone, glowSrc[i]) : tone;           // the borrowed shade
       const u = (now - glowSwapAt[i]) / GLOW_FADE_MS;
-      if (u < 1 && glowPrev[i]) c = d3.interpolateHcl(glowPrev[i], c)(Math.round(u * 12) / 12);
+      if (u < 1 && glowPrev[i]) c = hclFade(glowPrev[i], c)(Math.round(u * 12) / 12);
     } else {
       c = tint(tone, i);
       if (life[2] > 0) c = wither(c, Math.round(life[2] * 8) / 8);   // in steps, so a withering flower re-tints 8 times, not every frame
@@ -719,6 +752,17 @@ const eases = Object.fromEntries(Object.entries(d3).filter((a) => a.toString().s
 const audio = new Audio();
 
 audio.loop = true;
+let current;      // the colour this page last asked for (the wizard's next fade starts from it)
+let keys;         // letter -> <tinker-button>, built once the page has loaded
+window.onload = () => {
+  keys = [...document.querySelectorAll('tinker-button')].reduce((obj, btn) => { obj[btn.letter.toLowerCase()] = btn; return obj; }, {});
+};
+function playSound(soundLink, duration) {   // the original per-key sound (needs a URL); kept for the button component
+  if (!soundLink) return;
+  if (!audio.paused) audio.pause();
+  audio.src = soundLink; audio.play().catch(() => {});
+  setTimeout(() => audio.pause(), duration);
+}
 
 // ---- sound. Only light pages play, so a wizard window on the same laptop doesn't double it.
 // Two layers. Files: static/sounds/ambient.*, tap.*, swipe.* (mp3/ogg/wav/m4a); the server lists the
@@ -821,33 +865,13 @@ const runKey = (key) => {
     socket.emit('audio', {soundLink, duration})
   }
 
-  if (animateID) {
-    cancelAnimationFrame(animateID)
-  }
-  const startTime = performance.now();
-  // Capture the starting colour ONCE. The original code re-read the current colour every
-  // frame and interpolated from there, so progress compounded and every fade finished in
-  // a fraction of its duration. Interpolating from a fixed start makes the fade take the
-  // full duration.
-  // Start from the colour we last painted (tracked in `current`), not from what the browser
-  // reports for the body style: reading it back can yield a value d3 parses as black, which
-  // made every fade dip to black before rising to its target.
-  const startColor = current || getComputedStyle(document.body).getPropertyValue('--background-body').trim();
-  const toColor = interpolate(startColor, hex);
-
-  function animate(now) {
-    const timeSinceStart = (now - startTime);
-
-    // l goes from 0 to 1;
-    const l = ease(Math.min(timeSinceStart / duration, 1));
-    current = toColor(l)
-    paint(current)
-    socket.emit('hex', current)
-    if (l < 1) {
-      animateID = requestAnimationFrame(animate);
-    }
-  }
-  animateID = requestAnimationFrame(animate);
+  // Every light page fades itself from wherever it is, over the full duration. (The original
+  // code animated on the wizard and streamed a 'hex' per frame; that stalled whenever the
+  // wizard's tab was in the background, and it also compounded the interpolation so a fade
+  // finished in a fraction of its time.)
+  current = hex;
+  socket.emit('field', { op: 'fade', hex, ms: duration, easing });
+  fadeTone(hex, duration, easing);
 }
 
 
@@ -889,7 +913,7 @@ document.onkeydown = (event) => {
   else if (k === 'b') { soundSource = soundSource === 'file' ? 'synth' : 'file'; sound = { op: 'source', v: soundSource }; }
   if (field) { socket.emit('field', field); fieldOp(field); return; }
   if (sound) { socket.emit('sound', sound); soundOp(sound); return; }
-  keys[event.key] ? runKey(keys[event.key]) : undefined;
+  if (keys && keys[k]) runKey(keys[k]);   // colour keys, case-insensitive
 }
 
 
