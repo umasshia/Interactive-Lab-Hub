@@ -71,6 +71,6 @@ function cancelSoloScript() {
 
 document.addEventListener('keydown', (e) => {
   if (e.target.tagName === 'TINKER-BUTTON' || e.target.tagName === 'INPUT') return;
-  if (e.key === 'p' || e.key === 'P') runSoloScript();
-  if (e.key === 'Escape') { cancelSoloScript(); console.log('solo script cancelled'); }
+  if (e.code === 'KeyP' || e.key === 'p' || e.key === 'P') runSoloScript();
+  if (e.code === 'Escape' || e.key === 'Escape') { cancelSoloScript(); console.log('solo script cancelled'); }
 });

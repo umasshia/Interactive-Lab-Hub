@@ -1008,29 +1008,39 @@ const runKey = (key) => {
 
 
 
+// Keys are matched on event.code (the physical key: Space, Enter, ArrowLeft, KeyA ...), never on
+// event.key, because Shift changes what event.key reports ('a' -> 'A', and layout-dependent for
+// punctuation). Shift is read separately: it means "at the second point".
+const CODE_KEYS = { Space: ' ', Enter: 'Enter', ArrowLeft: 'ArrowLeft', ArrowRight: 'ArrowRight', ArrowUp: 'ArrowUp', ArrowDown: 'ArrowDown', BracketLeft: '[', BracketRight: ']' };
+function keyName(event) {
+  const c = event.code || '';
+  if (c in CODE_KEYS) return CODE_KEYS[c];
+  if (/^Key[A-Z]$/.test(c)) return c[3].toLowerCase();
+  if (/^Digit[0-9]$/.test(c)) return c[5];
+  return event.key.length === 1 ? event.key.toLowerCase() : event.key;   // no code (synthetic events): fall back to key
+}
 document.onkeydown = (event) => {
-  if (event.isComposing || event.target.tagName === 'TINKER-BUTTON') {
+  if (event.isComposing || event.target.tagName === 'TINKER-BUTTON' || event.target.tagName === 'INPUT') {
     return;
   }
+  const k = keyName(event), shift = event.shiftKey;
   // gestures: what the visitor's hand is doing at the wall. The touch point goes along only if
-  // this page's URL names one (?point=, or ?point2= with Shift), so a light page keeps its own otherwise.
-  const k0 = event.key.toLowerCase();
-  const pt = event.shiftKey && handPoint2 ? handPoint2 : pointSet ? handPoint : null;
+  // this page has one (URL ?point=, or a click on the preview); Shift means the second point.
+  const pt = shift && handPoint2 ? handPoint2 : pointSet ? handPoint : null;
   const at = pt ? { x: pt[0], y: pt[1] } : {};
   const arrows = { ArrowRight: 'right', ArrowLeft: 'left', ArrowUp: 'up', ArrowDown: 'down' };
   let gesture = null;
-  if (event.key === ' ') gesture = { kind: 'tap', ...at };
-  else if (arrows[event.key]) gesture = { kind: 'swipe', dir: arrows[event.key], ...at };
-  else if (event.key === 'd' || event.key === 'D') gesture = { kind: 'drag', ...at };
-  else if (event.key === 'h' || event.key === 'H') gesture = { kind: 'hold', ...at };
+  if (k === ' ') gesture = { kind: 'tap', ...at };
+  else if (arrows[k]) gesture = { kind: 'swipe', dir: arrows[k], ...at };
+  else if (k === 'd') gesture = { kind: 'drag', ...at };
+  else if (k === 'h') gesture = { kind: 'hold', ...at };
   if (gesture) { event.preventDefault(); socket.emit('hand', gesture); triggerHand(gesture.kind, gesture); return; }
-  if (k0 === 'a') { const ap = { slot: event.shiftKey ? 1 : 0, ...at }; socket.emit('approach', ap); triggerApproach(ap); return; }
-  if (k0 === 'l') { socket.emit('leave', {}); releaseApproaches(); return; }
-  if (event.key === 'Enter') { event.preventDefault(); socket.emit('poke', at); triggerPoke(at); return; }
+  if (k === 'a') { const ap = { slot: shift ? 1 : 0, ...at }; socket.emit('approach', ap); triggerApproach(ap); return; }
+  if (k === 'l') { socket.emit('leave', {}); releaseApproaches(); return; }
+  if (k === 'Enter') { event.preventDefault(); socket.emit('poke', at); triggerPoke(at); return; }
   // field clock and sound: T jump the clock forward, R reset to full bloom, Z pause/resume aging,
   // S next season (base colour fades over 5 s on the light; new flowers roll from the new palette),
   // [ ] exposure down/up, M/N ambient on/off. Light pages act on these; this page relays (and acts if it is one).
-  const k = event.key.toLowerCase();
   let field = null, sound = null;
   if (k === 's') {
     seasonOp(season + 1);
@@ -1038,9 +1048,9 @@ document.onkeydown = (event) => {
     current = SEASONS[season].base;                 // so the next colour key fades from where the light ends up
     paint(current);
   }
-  else if (event.key === '[') { setExposure(exposure - 0.1); field = { op: 'exposure', v: exposure }; }   // tracked here too, so steps accumulate
-  else if (event.key === ']') { setExposure(exposure + 0.1); field = { op: 'exposure', v: exposure }; }
-  if (k === 't') field = { op: 'advance', ms: TIME_STEP_MS };
+  else if (k === '[') { setExposure(exposure - 0.1); field = { op: 'exposure', v: exposure }; }   // tracked here too, so steps accumulate
+  else if (k === ']') { setExposure(exposure + 0.1); field = { op: 'exposure', v: exposure }; }
+  else if (k === 't') field = { op: 'advance', ms: TIME_STEP_MS };
   else if (k === 'r') field = { op: 'reset' };
   else if (k === 'z') { agingPaused = !agingPaused; field = { op: 'pause', on: agingPaused }; }
   else if (k === 'm') sound = { op: 'ambient', on: true };
@@ -1048,7 +1058,7 @@ document.onkeydown = (event) => {
   else if (k === 'b') { soundSource = soundSource === 'file' ? 'synth' : 'file'; sound = { op: 'source', v: soundSource }; }
   if (field) { socket.emit('field', field); fieldOp(field); return; }
   if (sound) { socket.emit('sound', sound); soundOp(sound); return; }
-  if (keys && keys[k]) runKey(keys[k]);   // colour keys, case-insensitive
+  if (keys && keys[k]) runKey(keys[k]);   // colour keys
 }
 
 
