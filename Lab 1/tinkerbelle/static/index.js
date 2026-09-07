@@ -330,26 +330,29 @@ function stepFlares(now, dt) {
 }
 const PETAL_COAST = 1.2;   // s: the burst spreads, then the petal is just drifting
 const PETAL_FALL = 1.0;    // %/s: settling speed of a drifting petal
-const PETAL_BOUNCE = 0.45; // restitution when two petals meet: they mostly stop against each other
-const PETAL_CONTACT = 0.6; // fraction of each petal's speed kept on contact (extra damping, so clouds pile up)
-const PETAL_RADIUS = 0.35; // contact distance as a fraction of the two petals' combined length
+const PETAL_BOUNCE = 0.6;  // restitution when two clouds meet
+const PETAL_RADIUS = 0.25; // contact distance as a fraction of the two petals' combined length
+const PETAL_FREE_MS = 1500;    // a petal cannot touch anything in its first 1.5 s, so clouds spread first
+const PETAL_REHIT_MS = 250;    // the same pair is resolved at most this often
+const PETAL_SETTLE = 0.012;    // fraction of the long edge per second: slower than this after a hit = drifting, no more contacts
 const SPIN_TAU = 3.0;      // s: tumble damps toward a gentle rock
 const bump = Math.min(1, Math.max(0, Number(params.get('bump') ?? 0.7)));   // flash on contact
 const petalGrid = new Map();   // cell -> [petal indices], rebuilt each frame for petal-petal collisions
 let petalBounces = 0;          // count of petal-petal bounces so far (shown in the ?fps=1 overlay)
+let gestureSeq = 0, petalSeq = 0;   // every gesture numbers its petals, so a burst never collides with itself
 function killAround(x, y, r) {
-  const now = performance.now();
+  const now = performance.now(), gesture = ++gestureSeq;
   blobSpots.forEach(([bx, by], i) => {
     if (isGlow[i] || deadAt[i] !== null) return;
     const d = Math.hypot(bx + offX[i] - x, by + offY[i] - y);
-    if (d < r) pendingKills.push({ i, at: now + d / r * 160, vec: null });
+    if (d < r) pendingKills.push({ i, at: now + d / r * 160, vec: null, gesture });
   });
 }
 function triggerPoke(opts) {
   if (lightMode !== 'blobs') return;
   const x = (opts && opts.x) ?? handPoint[0], y = (opts && opts.y) ?? handPoint[1];
   const vec = dirVector((opts && opts.dir) || defaultDir);
-  const now = performance.now();
+  const now = performance.now(), gesture = ++gestureSeq;
   playSfx('flick', x);
   blobSpots.forEach(([bx, by], i) => {
     if (isGlow[i] || deadAt[i] !== null) return;
@@ -357,14 +360,14 @@ function triggerPoke(opts) {
     const along = px * vec[0] + py * vec[1];             // distance along the flick line
     const side = Math.abs(px * vec[1] - py * vec[0]);    // distance off the line
     if (along < -KILL.flick || along > FLICK_LEN || side > KILL.flick) return;
-    pendingKills.push({ i, at: now + Math.max(0, along) / FLICK_LEN * 380, vec });
+    pendingKills.push({ i, at: now + Math.max(0, along) / FLICK_LEN * 380, vec, gesture });
   });
 }
 function wanderAt(i, now) {
   const [px, py, amp] = wander[i];
   return [amp * Math.sin(now / px * 2 * Math.PI + phase[i]), amp * Math.cos(now / py * 2 * Math.PI + phase[i])];
 }
-function die(i, vec, now) {
+function die(i, vec, now, gesture) {
   // The flower's own petals detach: each keeps its on-screen position, angle, size and colour,
   // and gets a velocity. Tap/swipe: outward from the flower centre. Flick: all downwind, slight fan.
   const f = drawSize[i] / S, [sx, sy] = squash[i], sway = drawSway[i];
@@ -384,6 +387,7 @@ function die(i, vec, now) {
     petals.push({ sprite, x, y, len, w: ph * SPECIES[species[i]].width * p.w * f * (sx + sy) / 2,
       ang: Math.atan2(dx, -dy), vx: Math.cos(ang) * speed, vy: Math.sin(ang) * speed,
       born: now, spin: (rand() - 0.5) * (vec ? 0.7 : 1.0), sway: rand() * 6.28, hits: new Set([i]), flash: -1e9,
+      id: ++petalSeq, gesture, settled: false, contacts: new Map(),   // contacts: other petal id -> last time resolved (flash once per pair)
       home: i, petal: p, leaveAt: now + gatherMs * (0.6 + rand()), retMs: RETURN_MIN_MS + rand() * (RETURN_MAX_MS - RETURN_MIN_MS), ret: null });
   }
   away[i] = petalTotal[i] = petalsOf[i].length; returnBegan[i] = false;
@@ -745,7 +749,7 @@ function renderBlobs() {
   for (let k = pendingKills.length - 1; k >= 0; k--) {
     const p = pendingKills[k]; if (p.at > now) continue;
     pendingKills.splice(k, 1);
-    if (deadAt[p.i] === null) die(p.i, p.vec, now);
+    if (deadAt[p.i] === null) die(p.i, p.vec, now, p.gesture);
   }
   // hands accelerate the (living) flowers near them
   for (const h of hands) {
@@ -879,12 +883,13 @@ function renderBlobs() {
       }
     }
   }
-  // petal-petal collisions: equal masses, so the velocity along the line between them swaps, with
-  // damping. Same-flower petals ignore each other for their first 300 ms (they start overlapping);
-  // petals flying home ignore everything so they always arrive.
+  // petal-petal collisions: only between petals from different gestures (a burst never collides
+  // with itself; the point is two people's clouds meeting), never in a petal's first 1.5 s, at most
+  // once per pair per 250 ms, and a petal that a hit has slowed to a drift resolves nothing more.
+  // Petals flying home ignore everything so they always arrive.
   petalGrid.clear();
   petals.forEach((p, k) => {
-    if (p.ret) return;
+    if (p.ret || p.settled || now - p.born < PETAL_FREE_MS) return;
     const key = cellKey(p.x / W * 100, p.y / H * 100);
     const cell = petalGrid.get(key); cell ? cell.push(k) : petalGrid.set(key, [k]);
   });
@@ -896,21 +901,25 @@ function renderBlobs() {
       for (const ki of cell) for (const kj of other) {
         if (other === cell && kj <= ki) continue;
         const p = petals[ki], q = petals[kj];
-        if (p.home === q.home && now - p.born < 300) continue;
+        if (p.gesture === q.gesture || p.settled || q.settled) continue;
         const dx = q.x - p.x, dy = q.y - p.y, d = Math.hypot(dx, dy), r = (p.len + q.len) * PETAL_RADIUS;
         if (d >= r || d < 0.01) continue;
+        const last = p.contacts.get(q.id);
+        if (last !== undefined && now - last < PETAL_REHIT_MS) continue;
         const nx = dx / d, ny = dy / d;
         const vp = p.vx * nx + p.vy * ny, vq = q.vx * nx + q.vy * ny;
         if (vp - vq <= 0) continue;                              // already separating
+        if (last === undefined) { petalBounces++; p.flash = q.flash = now; }   // the flash fires once per pair
+        p.contacts.set(q.id, now); q.contacts.set(p.id, now);
         const push = (r - d) / 2;                                // separate so they don't stick
         p.x -= nx * push; p.y -= ny * push; q.x += nx * push; q.y += ny * push;
-        const hit = vp - vq > 0.04 * long;                       // a real hit, not two resting petals jostling: only those flash and count
-        if (hit) { petalBounces++; p.flash = q.flash = now; }
         const jp = (vq - vp) * (1 + PETAL_BOUNCE) / 2;           // impulse along the normal (restitution PETAL_BOUNCE)
         p.vx += nx * jp; p.vy += ny * jp; q.vx -= nx * jp; q.vy -= ny * jp;
-        p.vx *= PETAL_CONTACT; p.vy *= PETAL_CONTACT; q.vx *= PETAL_CONTACT; q.vy *= PETAL_CONTACT;   // and both lose speed
-        const kick = Math.min(0.6, Math.abs(jp) / long * 8);     // a nudge to the tumble sized by the impulse, not by frame count
+        const kick = Math.min(0.4, Math.abs(jp) / long * 6);     // a nudge to the tumble sized by the impulse
         p.spin += (rand() - 0.5) * kick; q.spin += (rand() - 0.5) * kick;
+        const settle = PETAL_SETTLE * long;                      // slowed to a drift: ride the ambient motion from here on
+        if (Math.hypot(p.vx, p.vy) < settle) p.settled = true;
+        if (Math.hypot(q.vx, q.vy) < settle) q.settled = true;
       }
     }
   }
