@@ -23,7 +23,23 @@
 <div id='controlPanel'>
 	<!-- teamLab Borderless key map. duration = ms for the fade to reach the colour.
 	     Slow fades = flowers growing. Short fades = petals scattering.
-	     Fades interpolate by hue (HCL), so they pass through intermediate colours. -->
+	     Fades interpolate by hue (HCL), so they pass through intermediate colours.
+
+	     Keys that are not colours (handled in static/index.js, not by buttons):
+	       Space        tap at the touch point: nearby flowers die into petals, the rest ripple
+	       arrows       swipe: same kill, then a hand sweeps through in that direction
+	       Enter        flick: flowers along a line from the touch point die, petals fly downwind
+	       D / H        drag / hold: move or gather flowers, nothing dies
+	       Shift + any  the gesture lands at ?point2= instead of ?point= (two patches)
+	       T            jump the field clock forward (ages everything, shows the cycle on camera)
+	       R            reset: every slot back in full bloom (take one)
+	       Z            pause / resume natural aging (kills and regrowth still happen)
+	       S            next season: cherry -> summer -> autumn. Base colour fades over 5 s; new
+	                    flowers roll their shade and species from the new palette (T speeds it up)
+	       [ / ]        exposure down / up by 0.1 (0.6..2.0): flower and glow alpha, and lightness
+	       M / N        ambient sound on / off (plays on light pages; click the page once first)
+	       P / Esc      run / cancel the scripted solo take (static/solo.js)
+	     Light-page URL options: ?mode=blobs&season=cherry&regrow=45&exposure=1.3&point=50,50&dir=right&fps=1 (see index.js). -->
 
 	<!-- idle cycle: alternate 1 and 2 while nobody is there -->
 	<tinker-button letter="1" color_code="#0f6b4a" duration="6000" easing="SinInOut"></tinker-button>
@@ -46,8 +62,6 @@
 	<!-- hard off -->
 	<tinker-button letter="0" color_code="#000000" duration="300" easing="Linear"></tinker-button>
 
-	<!-- optional sound on scatter (needs internet) -->
-	<tinker-button letter="S" sound_only="true" duration="3000" sound="wind chime"></tinker-button>
 </div>
 
 	<link rel="stylesheet" href="static/vendor/pickr-classic.min.css" />

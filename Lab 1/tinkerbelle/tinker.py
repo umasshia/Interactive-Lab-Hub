@@ -36,6 +36,14 @@ def handle_poke(val):
 def handle_audio(val):
 	broadcast('audio', val)
 
+@socketio.on('field')
+def handle_field(val):
+	broadcast('field', val)
+
+@socketio.on('sound')
+def handle_sound(val):
+	broadcast('sound', val)
+
 @socketio.on('pauseAudio')
 def handle_pause(val):
 	broadcast('pauseAudio', val)
