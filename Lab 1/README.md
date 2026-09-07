@@ -128,7 +128,7 @@ Start the server from the [`tinkerbelle`](tinkerbelle/) folder (`python tinker.p
 | Light (projector) | `http://<ip>:5001/?mode=blobs&season=cherry&fps=1` | click **Tinkerbelle** once (fullscreen, and unlocks audio) |
 | Wizard (laptop) | `http://<ip>:5001/?point=30,50&point2=70,50` | click **Wizard**; keep this window visible during a take |
 
-The wizard page shows a small preview rectangle of the wall. Click it where the visitor's hand is to set the touch point; shift-click sets a second point. Both show as dots, and the URL's `point` / `point2` (percent across, down) are the starting values. Gestures land at the first point; hold **Shift** with a gesture and it lands at the second, so two people touching two places is two keypresses. Light-page options: `regrow=45` (seconds a killed patch stays dark), `petallife=4.5`, `wave=0.6`, `exposure=1.6`, `band=70`, `wide=110`, `sat=0.6,0.9`, `full=0.25`, `pale=0.15`, `sfx=0.35`, `amb=0.6`, `count=320`, `dir=right`.
+The wizard page shows a small preview rectangle of the wall. Click it where the visitor's hand is to set the touch point; shift-click sets a second point. Both show as dots, and the URL's `point` / `point2` (percent across, down) are the starting values. Gestures land at the first point; hold **Shift** with a gesture and it lands at the second, so two people touching two places is two keypresses. Light-page options: `gather=12` (seconds petals drift before flying home), `wave=0.3`, `exposure=1.6`, `band=70`, `wide=110`, `sat=0.6,0.9`, `full=0.25`, `pale=0.15`, `sfx=0.35`, `amb=0.6`, `count=320`, `dir=right`.
 
 | Group | Key | What the light does |
 |---|---|---|
@@ -137,9 +137,9 @@ The wizard page shows a small preview rectangle of the wall. Click it where the 
 | | `5` `6` | teal / blue |
 | | `G` / `K` | whole field warm (the Part 1 approach) / resting dim violet-blue |
 | | `0` | black |
-| Gestures | `Space` | tap: flowers near the point break into petals, the rest ripple |
+| Gestures | `Space` | tap: flowers near the point burst into petals; the petals drift and tumble across the wall, bounce off each other, and after 12 s fly home and the same flowers recompose. The rest of the field ripples |
 | | `←` `↑` `→` `↓` | swipe: same, then a hand sweeps through in that direction |
-| | `Enter` | flick: flowers along a line from the point break, petals fly downwind |
+| | `Enter` | flick: flowers along a line from the point burst, petals fly downwind |
 | | `D` / `H` | drag / hold: flowers move or gather, nothing dies |
 | | `A` | approach: flowers near the point drift toward it, twinkle for 4 s and warm; `Shift+A` at the second point |
 | | `L` | leave: both approaches relax home and cool over 2 s |
@@ -153,7 +153,7 @@ The wizard page shows a small preview rectangle of the wall. Click it where the 
 | Exposure | `[` / `]` | darker / brighter, 0.6 to 2.0 |
 | Solo | `P` / `Esc` | run / cancel the scripted take |
 
-Every tap, swipe and flick plays a note from a pentatonic scale in the pad's key, chosen by the touch point's position across the wall: low on the left, high on the right. Notes ring for about 2 s, so gestures a moment apart, or two people at two points, sound as a chord. Flying petals that cross a living flower make it flare, and the flare hops to neighbouring flowers, weaker each hop (`wave=0.6` on the light URL sets how far it carries). Sound files can replace the synth: put `ambient.mp3`, `tap.mp3`, `swipe.mp3` (ogg, wav or m4a also work) in `tinkerbelle/static/sounds/`, reload the light page, and press `B`.
+Every tap, swipe and flick plays a note from a pentatonic scale in the pad's key, chosen by the touch point's position across the wall: low on the left, high on the right. Notes ring for about 2 s, so gestures a moment apart, or two people at two points, sound as a chord. Two people touching in different places send two clouds of petals into each other: the petals collide and bounce, then each cloud flies home to its own flowers. Flying petals that cross a living flower make it flare, and the flare hops to neighbouring flowers, weaker each hop (`wave=0.3` on the light URL sets how far it carries). Sound files can replace the synth: put `ambient.mp3`, `tap.mp3`, `swipe.mp3` (ogg, wav or m4a also work) in `tinkerbelle/static/sounds/`, reload the light page, and press `B`.
 
 ## Prep (before the next lab)
 
