@@ -398,9 +398,12 @@ function die(i, vec, now, gesture) {
   const f = drawSize[i] / S, [sx, sy] = squash[i], sway = drawSway[i];
   const cs = Math.cos(sway), sn = Math.sin(sway);
   const toWorld = (px, py) => { const X = px * sx, Y = py * sy; return [drawX[i] + f * (X * cs - Y * sn), drawY[i] + f * (X * sn + Y * cs)]; };
-  const sprite = tintPetal(species[i], tintedColor[i] || '#888');
+  const tints = new Map();   // one tinted drawing per variant used by this flower
   const long = Math.max(W, H);
   for (const p of petalsOf[i]) {
+    const a = petalArt(species[i], p);
+    if (!tints.has(a.cv)) tints.set(a.cv, tintPetal(species[i], p, tintedColor[i] || '#888'));
+    const sprite = tints.get(a.cv);
     const ph = p.len * R, base = p.dist * R;
     const [bx, by] = toWorld(Math.sin(p.ang) * base, -Math.cos(p.ang) * base);
     const [tx, ty] = toWorld(Math.sin(p.ang) * (base + ph), -Math.cos(p.ang) * (base + ph));
@@ -409,7 +412,7 @@ function die(i, vec, now, gesture) {
     let ang, speed;
     if (vec) { ang = Math.atan2(vec[1], vec[0]) + (rand() - 0.5) * 0.7; speed = (12 + rand() * 12) * long / 100; }   // flick: all downwind, a bit faster
     else     { ang = Math.atan2(y - drawY[i], x - drawX[i]) + (rand() - 0.5) * 1.0; speed = (7 + rand() * 9) * long / 100; }   // tap/swipe: outward
-    petals.push({ sprite, x, y, len, w: ph * SPECIES[species[i]].width * p.w * f * (sx + sy) / 2,
+    petals.push({ sprite, x, y, len, w: ph * a.aspect * p.w * f * (sx + sy) / 2, bf: a.baseFrac,
       ang: Math.atan2(dx, -dy), vx: Math.cos(ang) * speed, vy: Math.sin(ang) * speed,
       born: now, spin: (rand() - 0.5) * (vec ? 0.7 : 1.0), sway: rand() * 6.28, hits: new Set([i]), flash: -1e9,
       id: ++petalSeq, gesture, settled: false, contacts: new Map(),   // contacts: other petal id -> last time resolved (flash once per pair)
@@ -538,11 +541,13 @@ function seasonOp(k) {
 //   petals  count range        rings   [distance from centre, length] per ring, as a fraction of R
 //   width   petal width as a fraction of its length
 const SPECIES = {
-  cherry: { petals: [5, 6],   rings: [[0.14, 0.82]],                               width: 0.62, grad: 'paletip' },   // cherry is always pale at the base
-  daisy:  { petals: [13, 21], rings: [[0.20, 0.78], [0.16, 0.50]],                 width: 0.24, innerEvery: 2 },
-  mum:    { petals: [9, 12],  rings: [[0.10, 0.88], [0.08, 0.68], [0.06, 0.46]],   width: 0.22 },
-  star:   { petals: [8, 10],  rings: [[0.10, 0.86]],                               width: 0.40 },
+  cherry: { petals: [5, 6],   rings: [[0.14, 0.82]],                               width: 0.62, grad: 'paletip', art: 'cherry',        centreBox: 0.95 },   // cherry is always pale at the base
+  daisy:  { petals: [18, 22], rings: [[0.20, 0.78], [0.16, 0.50]],                 width: 0.24, innerEvery: 2,   art: 'daisy',         centreBox: 1.0 },
+  mum:    { petals: [24, 32], rings: [[0.10, 0.88], [0.08, 0.66], [0.06, 0.46]],   width: 0.22, art: 'chrysanthemum', centreBox: 1.3, total: true },   // 24-32 in all, over three staggered rings, inner ones shorter
+  star:   { petals: [8, 10],  rings: [[0.10, 0.86]],                               width: 0.40, art: 'star',          centreBox: 0.9 },
 };
+// `art` is the file prefix in static/petals/ (<art>-a.svg, -b, -c and <art>-centre.svg);
+// `width` is only the fallback aspect if the artwork fails to load; `centreBox` sizes the centre art in R
 let SPECIES_MIX = SEASONS[season].mix;   // the season's mix; default seasons are defined above
 function rollSpecies() {
   let u = rand() * Object.values(SPECIES_MIX).reduce((a, b) => a + b, 0);
@@ -552,13 +557,14 @@ function rollSpecies() {
 // per petal: ring, angle (small jitter), length (small jitter; one in eight noticeably short), width factor
 function buildPetals(name) {
   const sp = SPECIES[name], out = [];
-  const n = sp.petals[0] + Math.floor(rand() * (sp.petals[1] - sp.petals[0] + 1));
+  const nTotal = sp.petals[0] + Math.floor(rand() * (sp.petals[1] - sp.petals[0] + 1));
+  const n = sp.total ? Math.round(nTotal / sp.rings.length) : nTotal;   // `total`: the count is spread over the rings
   sp.rings.forEach(([dist, len], ring) => {
     const every = ring > 0 && sp.innerEvery ? sp.innerEvery : 1;
     for (let k = 0; k < n; k += every) {
       const ang = (k + ring * 0.5) * 2 * Math.PI / n + (rand() - 0.5) * 0.12;
       const short = rand() < 1 / 8 ? 0.7 : 1;
-      out.push({ ring, ang, dist, len: len * short * (0.92 + rand() * 0.16), w: 0.9 + rand() * 0.2 });
+      out.push({ ring, ang, dist, len: len * short * (0.92 + rand() * 0.16), w: 0.9 + rand() * 0.2, v: Math.floor(rand() * 3) });   // v: which of the three petal drawings
     }
   });
   return out;
@@ -643,14 +649,76 @@ function buildPetalSprite(name) {
   c.restore();
   return cv;
 }
-const petalSprites = Object.fromEntries(Object.keys(SPECIES).map((n) => [n, buildPetalSprite(n)]));
-// a petal sprite in one flower's colour, for its petals when they scatter
-function tintPetal(name, color) {
-  const cv = makeCanvas(P, P), c = cv.getContext('2d');
-  c.drawImage(petalSprites[name], 0, 0);
-  c.globalCompositeOperation = 'multiply'; c.fillStyle = color; c.fillRect(0, 0, P, P);
-  c.globalCompositeOperation = 'destination-in'; c.drawImage(petalSprites[name], 0, 0);
+const petalSprites = Object.fromEntries(Object.keys(SPECIES).map((n) => [n, buildPetalSprite(n)]));   // fallback only
+
+// ---- the petal and centre artwork: static/petals/<species>-{a,b,c}.svg and <species>-centre.svg,
+// greyscale with alpha, 256 px, petal pointing up with its base at (128, 250). Each SVG is
+// rasterized once at load and the petals are cropped to their alpha bounds, so a sprite box is the
+// petal itself: `aspect` is width/height and `baseFrac` where the base sits across the crop.
+// Until the files arrive (or if one is missing) the drawn fallback above is used.
+const ART_PX = 256;
+const art = {};            // species -> { petals: [{cv, aspect, baseFrac}, ...3], centre: canvas }
+let artLoaded = 0;
+function loadSvg(url) {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => { const cv = makeCanvas(ART_PX, ART_PX); cv.getContext('2d').drawImage(img, 0, 0, ART_PX, ART_PX); resolve(cv); };
+    img.onerror = () => resolve(null);
+    img.src = url;
+  });
+}
+function cropToAlpha(cv, margin = 2) {
+  const d = cv.getContext('2d').getImageData(0, 0, cv.width, cv.height).data;
+  let x0 = cv.width, y0 = cv.height, x1 = -1, y1 = -1;
+  for (let y = 0; y < cv.height; y++) for (let x = 0; x < cv.width; x++) {
+    if (d[(y * cv.width + x) * 4 + 3] > 6) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+  }
+  if (x1 < 0) return null;
+  x0 = Math.max(0, x0 - margin); y0 = Math.max(0, y0 - margin); x1 = Math.min(cv.width - 1, x1 + margin); y1 = Math.min(cv.height - 1, y1 + margin);
+  const w = x1 - x0 + 1, h = y1 - y0 + 1, out = makeCanvas(w, h);
+  out.getContext('2d').drawImage(cv, x0, y0, w, h, 0, 0, w, h);
+  return { cv: out, aspect: w / h, baseFrac: (ART_PX / 2 - x0) / w };   // the base is at x = 128 in the file
+}
+async function loadArt() {
+  if (!lightMode) return;
+  for (const [name, sp] of Object.entries(SPECIES)) {
+    const [a, b, c, centre] = await Promise.all(['a', 'b', 'c', 'centre'].map((v) => loadSvg(`static/petals/${sp.art}-${v}.svg`)));
+    const petals = [a, b, c].map((cv) => cv && cropToAlpha(cv));
+    if (petals.every(Boolean) && centre) { art[name] = { petals, centre }; artLoaded++; }
+    else console.warn(`petal artwork missing for ${name}; using the drawn fallback`);
+  }
+  shapeBlur.fill(-1); tintedColor.fill(null);   // every flower recomposes with the artwork
+}
+const artReady = loadArt();
+// what to draw for petal p of species `name`: the artwork variant, or the fallback
+function petalArt(name, p) {
+  const a = art[name];
+  return a ? a.petals[p.v % 3] : { cv: petalSprites[name], aspect: SPECIES[name].width, baseFrac: 0.5 };
+}
+// a petal drawing in one flower's colour, for its petals when they scatter
+function tintPetal(name, p, color) {
+  const src = petalArt(name, p).cv;
+  const cv = makeCanvas(src.width, src.height), c = cv.getContext('2d');
+  c.drawImage(src, 0, 0);
+  c.globalCompositeOperation = 'multiply'; c.fillStyle = color; c.fillRect(0, 0, cv.width, cv.height);
+  c.globalCompositeOperation = 'destination-in'; c.drawImage(src, 0, 0);
   return cv;
+}
+// the centre artwork tinted and placed in an S x S box, sized by the species' centreBox (in R)
+const CENTRE_TINT = {
+  matte: { daisy: '#d9a441', cherry: '#e8d2a0', mum: null, star: '#e0c98c' },   // null: the flower's own colour
+  lit:   { daisy: '#ffc93d', cherry: '#f3d68c', mum: null, star: '#f6e3a0' },
+};
+function drawCentreArt(t, name, color) {
+  const a = art[name]; if (!a) return false;
+  const tint = (CENTRE_TINT[LOOK.centre === 'matte' ? 'matte' : 'lit'][name]) || color;
+  const box = SPECIES[name].centreBox * R;
+  const cv = makeCanvas(), c = cv.getContext('2d');
+  c.drawImage(a.centre, C - box / 2, C - box / 2, box, box);
+  c.globalCompositeOperation = 'multiply'; c.fillStyle = tint; c.fillRect(0, 0, S, S);
+  c.globalCompositeOperation = 'destination-in'; c.drawImage(a.centre, C - box / 2, C - box / 2, box, box);
+  t.drawImage(cv, -C, -C);
+  return true;
 }
 function buildGlowSprite() {
   const cv = makeCanvas(), ctx = cv.getContext('2d');
@@ -752,7 +820,6 @@ if (lightMode === 'blobs') {
 
 // ---- compose: the flower's petals into its greyscale shape (squash and glow-blur baked in)
 function compose(i, blur) {
-  const sp = SPECIES[species[i]], sprite = petalSprites[species[i]];
   const c = shape[i].getContext('2d');
   c.setTransform(1, 0, 0, 1, 0, 0); c.globalCompositeOperation = 'source-over'; c.clearRect(0, 0, S, S);
   c.filter = blur > 0.05 ? `blur(${blur}px)` : 'none';
@@ -763,9 +830,10 @@ function compose(i, blur) {
   const order = layered ? [...petalsOf[i]].sort((a, b) => b.ring - a.ring) : petalsOf[i];
   if (layered) c.globalCompositeOperation = 'multiply';
   for (const p of order) {
-    const ph = p.len * R, pw = ph * sp.width * p.w;
+    const a = petalArt(species[i], p);
+    const ph = p.len * R, pw = ph * a.aspect * p.w;
     c.save(); c.rotate(p.ang); c.globalAlpha = layered ? 0.92 : (p.ring === 0 ? 1 : 0.9);
-    c.drawImage(sprite, -pw / 2, -(p.dist * R) - ph, pw, ph);
+    c.drawImage(a.cv, -a.baseFrac * pw, -(p.dist * R) - ph, pw, ph);   // base at the ring distance, tip outward
     c.restore();
   }
   c.globalCompositeOperation = 'source-over';
@@ -790,7 +858,7 @@ function retint(i, color) {
     const kind = species[i] === 'star' ? (heartYellow[i] ? 'starY' : 'starW') : species[i];
     t.globalAlpha = Math.max(0, Math.min(1, d3.hcl(color).l / 55));
     t.translate(C, C); t.scale(squash[i][0], squash[i][1]);
-    t.drawImage(centreSprites[kind], -C, -C);
+    if (!drawCentreArt(t, species[i], color)) t.drawImage(centreSprites[kind], -C, -C);
     t.setTransform(1, 0, 0, 1, 0, 0); t.globalAlpha = 1;
     if (halo[i]) {                                                 // the halo: the soft glow sprite in this colour
       const h = halo[i].getContext('2d');
@@ -814,7 +882,7 @@ function renderBlobs() {
   if (petals.length >= petalPeak || now - petalPeakAt > 2000) { petalPeak = petals.length; petalPeakAt = now; }
   if (++fpsCount && now - fpsAt >= 1000) {
     window.fpsLast = fpsCount * 1000 / (now - fpsAt); fpsCount = 0; fpsAt = now;
-    if (fpsBox) fpsBox.textContent = `${window.fpsLast.toFixed(0)} fps  ${petalPeak} petals  ${flare.filter((f) => f > 0.05).length} flaring  ${petalBounces} bounces  exposure ${exposure.toFixed(1)}  sound ${soundLabel()}`;
+    if (fpsBox) fpsBox.textContent = `${window.fpsLast.toFixed(0)} fps  ${petalPeak} petals  ${flare.filter((f) => f > 0.05).length} flaring  ${petalBounces} bounces  art ${artLoaded}/4  exposure ${exposure.toFixed(1)}  sound ${soundLabel()}`;
   }
   const dt = Math.min((now - lastFrame) / 1000, 0.05); lastFrame = now;
   if (!agingPaused) fieldTime += dt * 1000;
@@ -1045,9 +1113,10 @@ function renderBlobs() {
     ctx.translate(p.x, p.y); ctx.rotate(p.ang);
     ctx.globalCompositeOperation = LOOK.blend === 'layered' ? 'source-over' : 'lighter';
     ctx.globalAlpha = 0.95;
-    ctx.drawImage(p.sprite, -p.w / 2, -p.len / 2, p.w, p.len);
+    const bx0 = -(p.bf ?? 0.5) * p.w;
+    ctx.drawImage(p.sprite, bx0, -p.len / 2, p.w, p.len);
     const fl = 1 - (now - p.flash) / 200;                      // a 200 ms flash on contact, drawn again additively
-    if (fl > 0) { ctx.globalCompositeOperation = 'lighter'; ctx.globalAlpha = fl * bump; ctx.drawImage(p.sprite, -p.w / 2, -p.len / 2, p.w, p.len); }
+    if (fl > 0) { ctx.globalCompositeOperation = 'lighter'; ctx.globalAlpha = fl * bump; ctx.drawImage(p.sprite, bx0, -p.len / 2, p.w, p.len); }
     ctx.restore();
   }
 
