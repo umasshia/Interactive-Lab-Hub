@@ -7,7 +7,9 @@ const control = document.getElementById('control');
 // With no ?mode the page stays a plain flat colour (original behaviour).
 //
 // blobs options (all in the URL):
-//   spread=<ms>   how long a colour change takes to travel across the field (default 900)
+//   fade=<s>      how long a colour key's change takes (default 12); seasonfade=<s> for a season change (default 20).
+//                 A change sweeps across the field from a random point: each flower starts at an offset
+//                 by distance, spread over 60% of the time, and runs its own eased fade in the remaining 40%
 //   dir=<right|left|up|down|angle-in-degrees>   direction of a swipe/flick (default right)
 //   count=<n>     how many flowers (default 1400)
 //   cover=<0..1>  fraction of the wall the drifts cover (default 0.85); the rest is thin dark channels,
@@ -24,12 +26,16 @@ const control = document.getElementById('control');
 //   gather=<s>    centre of the window in which a touched flower's petals start flying home: each petal
 //                 leaves between 0.6x and 1.6x this and takes 4-7 s, so a flower reassembles petal by petal (default 12)
 //   bump=<0..1>   how brightly two petals flash when they collide (default 0.7)
+//   captions=off  no captions during a scripted take (see CAPTIONS in solo.js)
+//   record=1      record mode: every bit of UI hidden, cursor off; one click, a 3 s countdown, then the
+//                 take in solo.js runs while the canvas (60 fps) and the audio master are captured to
+//                 storyboard-demo.webm, downloaded when the take ends. end=<s> cuts the take short
 //   exposure=<x>  starting brightness multiplier, 0.6..2.0 (default 1.6); the wizard's [ and ] step it
 //   wave=<0..1>   how far a flare travels when a flying petal hits a flower (default 0.3)
 //
 // All motion integrates real elapsed time (dt, capped at 50 ms so a stall never teleports anything);
 // nothing steps per frame, so 30 and 220 fps look the same.
-//   sfx=<0..1>    volume of the tap/swipe effects (default 0.35); amb=<0..1> ambient volume (default 0.6)
+//   sfx=<0..1>    harp volume (default 0.35); amb=<0..1> pad volume (default 0.6); reverb=<0..1> wet share (default 0.5)
 //   point=x,y     touch point in %, used when the wizard's gesture carries none (default 50,50)
 //
 // Performance model: a flower is a list of petals, but while it is alive it is drawn as ONE
@@ -255,6 +261,88 @@ const birth = blobSpots.map(() => 0);      // fieldTime at which this flower bud
 const deadAt = blobSpots.map(() => null);  // real time it went, or null while alive
 const sizeMul = blobSpots.map(() => 1);
 let fieldTime = 0, agingPaused = false;
+// ---- captions during a scripted take: one short line, bottom centre, thin sans-serif at 2% of the
+// wall height, off-white at 70%, no box, half a second in and out. Drawn on the canvas so the
+// recording has them. The lines live in CAPTIONS at the top of solo.js.
+let recordStart = null;
+const captionsOn = params.get('captions') !== 'off';
+const recordMode = params.get('record') === '1' && lightMode === 'blobs';
+const recordEndMs = params.get('end') ? Number(params.get('end')) * 1000 : null;
+let countdownEnd = null, recorder = null, recordChunks = [], recordStarted = false;
+if (recordMode) {   // nothing but the field and the captions: no buttons, panels, overlay, cursor or scroll bars
+  const st = document.createElement('style');
+  st.textContent = '#user, #controlPanel, #legend, #preview { display: none !important; } html { background: #000 !important; } html, body { overflow: hidden !important; cursor: none !important; margin: 0 !important; padding: 0 !important; max-width: none !important; width: 100% !important; height: 100% !important; background: transparent; }';
+  document.head.appendChild(st);
+  document.addEventListener('click', () => { if (recordStarted) return; recordStarted = true; beginTake(); }, { once: false });
+}
+// the audio master: everything audible goes through here, so a recording can tap it too
+let masterNode = null, recordDest = null;
+function masterOut(c) {
+  if (masterNode && masterNode.context === c) return masterNode;
+  masterNode = c.createGain(); masterNode.connect(c.destination);
+  if (recordMode) { recordDest = c.createMediaStreamDestination(); masterNode.connect(recordDest); }
+  return masterNode;
+}
+function beginTake() {
+  getAudioCtx();                                                  // unlocked by this click
+  if (document.fullscreenEnabled) document.documentElement.requestFullscreen().catch(() => {});
+  countdownEnd = performance.now() + 3000;
+  setTimeout(startRecording, 3000);
+}
+function startRecording() {
+  countdownEnd = null;
+  const c = getAudioCtx(); masterOut(c);
+  const stream = canvas.captureStream(60);
+  if (recordDest) for (const t of recordDest.stream.getAudioTracks()) stream.addTrack(t);
+  const mime = ['video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm'].find((m) => MediaRecorder.isTypeSupported(m)) || '';
+  recorder = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 24e6, audioBitsPerSecond: 192e3 });
+  recordChunks = [];
+  recorder.ondataavailable = (e) => { if (e.data && e.data.size) recordChunks.push(e.data); };
+  recorder.onstop = () => {
+    const blob = new Blob(recordChunks, { type: 'video/webm' });
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'storyboard-demo.webm';
+    document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 2000);
+    window.recordingDone = { bytes: blob.size, mime };
+  };
+  recorder.start(1000);
+  window.recordingStartedAt = performance.now();
+  runSoloScript();                                                // the take; its end (or end=) stops the recorder
+  if (recordEndMs) setTimeout(stopRecording, recordEndMs);
+}
+function stopRecording() {
+  cancelSoloScript();                                             // sends record-off, which stops the recorder
+  if (recorder && recorder.state === 'recording') recorder.stop();
+}
+function drawCountdown(now) {
+  if (countdownEnd === null) return;
+  const left = countdownEnd - now; if (left <= 0) return;
+  const n = Math.ceil(left / 1000), frac = (left / 1000) % 1;
+  ctx.save(); ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.globalCompositeOperation = 'source-over';
+  ctx.font = `200 ${Math.round(H * 0.18)}px "Helvetica Neue", Helvetica, Arial, system-ui, sans-serif`;
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.globalAlpha = 0.6 * Math.min(1, frac * 4); ctx.fillStyle = '#f2ede4';
+  ctx.fillText(String(n), W / 2, H / 2);
+  ctx.restore();
+}
+const CAPTION_HOLD = 5, CAPTION_FADE = 0.5;
+function drawCaptions(now) {
+  if (recordStart === null || !captionsOn || typeof CAPTIONS === 'undefined') return;
+  const t = (now - recordStart) / 1000;
+  for (let k = 0; k < CAPTIONS.length; k++) {
+    const [at, text] = CAPTIONS[k]; if (!text || t < at) continue;
+    const end = Math.min(at + CAPTION_HOLD, k + 1 < CAPTIONS.length ? CAPTIONS[k + 1][0] : Infinity);
+    if (t >= end) continue;
+    const a = Math.min(1, (t - at) / CAPTION_FADE, (end - t) / CAPTION_FADE);
+    ctx.save();
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.globalCompositeOperation = 'source-over';
+    ctx.font = `300 ${Math.round(H * 0.02)}px "Helvetica Neue", Helvetica, Arial, system-ui, sans-serif`;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
+    ctx.globalAlpha = 0.7 * a; ctx.fillStyle = '#f2ede4';
+    ctx.fillText(text, W / 2, H - H * 0.045);
+    ctx.restore();
+    break;
+  }
+}
 let ffLeft = 0, ffTotal = 0;   // ms of aging still to apply from T presses; drained over FF_MS
 const FF_MS = 3000;
 const resetAt = blobSpots.map(() => -1e9), resetFrom = blobSpots.map(() => null);   // R: each flower eases from its old look
@@ -308,12 +396,13 @@ if (preview && !lightMode) {
 }
 function fieldOp(op) {
   if (op.op === 'aspect') { setAspect(op.v); return; }        // sent by light pages; only the wizard's preview cares
+  if (op.op === 'record') { recordStart = op.on ? performance.now() : null; if (!op.on && recorder && recorder.state === 'recording') recorder.stop(); return; }   // the take started / stopped
   if (lightMode !== 'blobs') return;
   if (op.op === 'advance') { ffLeft += op.ms; ffTotal = ffLeft; }
   else if (op.op === 'reset') resetField(true);
   else if (op.op === 'pause') agingPaused = !!op.on;
-  else if (op.op === 'season') { seasonOp(op.k); if (op.base) fadeTone(op.base, op.ms || 5000); }
-  else if (op.op === 'fade') fadeTone(op.hex, op.ms, op.easing);
+  else if (op.op === 'season') { seasonOp(op.k); if (op.base) fadeTone(op.base, seasonFadeMs); }
+  else if (op.op === 'fade') fadeTone(op.hex, fadeMs, op.easing);   // the light sets the pace, not the key
   else if (op.op === 'exposure') setExposure(op.v);
 }
 // A fade run by the light page itself (the season change uses this). The wizard's own colour keys
@@ -329,11 +418,43 @@ function hclFade(a, b) {
   if (isNaN(A.h)) A.h = isNaN(B.h) ? 0 : B.h; if (isNaN(B.h)) B.h = A.h;
   return d3.interpolateHcl(A, B);
 }
+const fadeMs = Number(params.get('fade') || 12) * 1000, seasonFadeMs = Number(params.get('seasonfade') || 20) * 1000;
 function fadeTone(hex, ms, easing) {
   if (!lightMode) return;                                            // a wizard page shows nothing
-  const from = lightMode === 'blobs' ? colorAt(0) : (current || '#000');   // from what is showing now
-  toneFade = { f: hclFade(from, hex), t0: performance.now(), ms: Number(ms) || 5000, ease: eases[easing] || d3.easeSinInOut };
-  if (lightMode !== 'blobs') requestAnimationFrame(plainFade);       // blobs mode steps it in its own render loop
+  if (lightMode === 'blobs') { startSweep(hex, ms || fadeMs); return; }
+  const from = current || '#000';                                    // plain lights: one fade for the whole page
+  toneFade = { f: hclFade(from, hex), t0: performance.now(), ms: Number(ms) || fadeMs, ease: eases[easing] || d3.easeSinInOut };
+  requestAnimationFrame(plainFade);
+}
+// ---- the sweep. Every flower carries its own tone (HCL, numeric). A colour change picks a random
+// origin on the wall; each flower starts after a delay proportional to its distance from it, spread
+// over SWEEP_SPREAD of the fade, and then runs its own slow-in slow-out fade in the rest. A new
+// change during a sweep starts from wherever each flower is at that moment.
+const SWEEP_SPREAD = 0.6;
+const toneH = new Float32Array(blobSpots.length), toneC = new Float32Array(blobSpots.length), toneL = new Float32Array(blobSpots.length);
+let sweep = null;   // {t0, ms, origin, maxDist, h, c, l, fromH, fromC, fromL}
+function startSweep(hex, ms) {
+  const to = d3.hcl(hex), now = performance.now();
+  const origin = [rand() * 100, rand() * 100];
+  const maxDist = Math.max(...[[0, 0], [100, 0], [0, 100], [100, 100]].map(([x, y]) => Math.hypot(x - origin[0], y - origin[1])));
+  if (sweep) stepSweep(now);                                           // settle each flower where it is right now
+  sweep = { t0: now, ms: Number(ms) || fadeMs, origin, maxDist, h: to.h, c: isNaN(to.c) ? 0 : to.c, l: to.l,
+            fromH: Float32Array.from(toneH), fromC: Float32Array.from(toneC), fromL: Float32Array.from(toneL) };
+}
+function stepSweep(now) {
+  if (!sweep) return;
+  const sw = sweep, spread = sw.ms * SWEEP_SPREAD, own = sw.ms - spread;
+  let allDone = true;
+  for (let i = 0; i < blobSpots.length; i++) {
+    const delay = Math.hypot(blobSpots[i][0] - sw.origin[0], blobSpots[i][1] - sw.origin[1]) / sw.maxDist * spread;
+    const u = Math.min(1, Math.max(0, (now - sw.t0 - delay) / own));
+    if (u < 1) allDone = false;
+    const e = u <= 0 ? 0 : u >= 1 ? 1 : 0.5 - 0.5 * Math.cos(Math.PI * u);   // slow in, slow out
+    const toH = isNaN(sw.h) ? sw.fromH[i] : sw.h;                              // to black or grey: keep the hue
+    let dh = toH - sw.fromH[i]; dh -= Math.round(dh / 360) * 360;              // the short way round the wheel
+    toneH[i] = sw.fromH[i] + dh * e; toneC[i] = sw.fromC[i] + (sw.c - sw.fromC[i]) * e; toneL[i] = sw.fromL[i] + (sw.l - sw.fromL[i]) * e;
+  }
+  if (allDone) sweep = null;
 }
 function stepToneFade(now) {
   if (!toneFade) return null;
@@ -574,6 +695,10 @@ const SEASONS = [
   }
 }
 let season = Math.max(0, SEASONS.findIndex((x, k) => String(k) === params.get('season') || x.name === params.get('season')));
+{ // every flower starts at the season's base tone (or ?tone=)
+  const start = d3.hcl(params.get('tone') ? '#' + params.get('tone').replace('#', '') : SEASONS[season].base);
+  toneH.fill(isNaN(start.h) ? 0 : start.h); toneC.fill(isNaN(start.c) ? 0 : start.c); toneL.fill(start.l);
+}
 const hueOff = blobSpots.map(() => 0), satMul = blobSpots.map(() => 0.5), pale = blobSpots.map(() => 0);
 const lightJitter = blobSpots.map(() => (rand() - 0.5) * 10);
 function rollPalette(i) {
@@ -680,14 +805,24 @@ function quantizeStr(color) {
   if (q === undefined) { const c = d3.hcl(color); q = isNaN(c.h) ? color : quantize(c).formatRgb(); if (quantMemo.size > 4000) quantMemo.clear(); quantMemo.set(color, q); }
   return q;
 }
-function tint(color, i) {
-  const c = d3.hcl(color);
-  if (isNaN(c.h)) return color;                       // black / grey: leave alone
-  c.h += hueOff[i];
-  c.c = Math.max(c.c, 70) * satMul[i];                // chroma from the class, not from the key's own vividness
-  c.l = (c.l + (92 - c.l) * pale[i] + lightJitter[i]) * TIER[tierOf[i]].light;   // pale toward light; small tier dims
-  c.l = Math.min(92, c.l + (100 - c.l) * (exposure - 1) * 0.25);                  // exposure lifts lightness gently (its main effect is alpha); never white
-  return quantize(c).formatRgb();
+// this flower's own shade of its current tone, quantized. All arithmetic; the colour string is only
+// rebuilt when the quantized values move, which is what makes a 1400-flower sweep cheap per frame.
+const qH = new Int16Array(blobSpots.length).fill(-9999), qC = new Int16Array(blobSpots.length), qL = new Int16Array(blobSpots.length);
+const tintStr = blobSpots.map(() => '#000');
+function tintOf(i) {
+  const tl = toneL[i];
+  if (tl < 1.5) { if (qH[i] !== -1) { qH[i] = -1; tintStr[i] = '#000000'; } return tintStr[i]; }   // black stays black
+  const dark = Math.min(1, tl / 20);                                                   // chroma dies out toward black
+  let h = toneH[i] + hueOff[i];
+  const c = Math.max(toneC[i], 70) * satMul[i] * dark;                                // chroma from the class, not from the key's own vividness
+  let l = (tl + (92 - tl) * pale[i] + lightJitter[i]) * TIER[tierOf[i]].light;        // pale toward light; small tier dims
+  l = Math.min(92, l + (100 - l) * (exposure - 1) * 0.25);                            // exposure lifts lightness gently; never white
+  const hq = Math.round(h / HUE_STEP), cq = Math.round(c / CHROMA_STEP), lq = Math.round(l / LIGHT_STEP);
+  if (hq !== qH[i] || cq !== qC[i] || lq !== qL[i]) {
+    qH[i] = hq; qC[i] = cq; qL[i] = lq;
+    tintStr[i] = d3.hcl(hq * HUE_STEP, cq * CHROMA_STEP, lq * LIGHT_STEP).formatRgb();
+  }
+  return tintStr[i];
 }
 
 // ---- sprites, built once: one greyscale petal per species (tinted later), the glow patch,
@@ -906,13 +1041,16 @@ if (lightMode) {
 }
 if (lightMode === 'blobs') {
   canvas = document.createElement('canvas');
-  canvas.style.cssText = 'position:fixed;inset:0;width:100%;height:100%;z-index:-1;';
+  canvas.style.cssText = recordMode
+    ? 'position:fixed;top:0;left:0;margin:0;transform:none;z-index:10;display:block;'   // on top of everything, sized in px by resize()
+    : 'position:fixed;inset:0;width:100%;height:100%;z-index:-1;';
   document.body.appendChild(canvas);
   ctx = canvas.getContext('2d');
   const resize = () => {
     dpr = Math.min(window.devicePixelRatio || 1, 1.5);
     W = window.innerWidth; H = window.innerHeight;
     canvas.width = Math.round(W * dpr); canvas.height = Math.round(H * dpr);
+    if (recordMode) { canvas.style.width = W + 'px'; canvas.style.height = H + 'px'; canvas.style.left = '0px'; canvas.style.top = '0px'; }   // edge to edge, exactly the window
   };
   resize(); window.addEventListener('resize', () => { resize(); socket.emit('field', { op: 'aspect', v: W / H }); });
   glowSprite = buildGlowSprite();
@@ -1059,7 +1197,7 @@ function centreSpriteFor(i) {
 }
 
 // ?fps=1 shows the frame rate and petal count in the corner of the light page
-const fpsBox = params.get('fps') ? Object.assign(document.body.appendChild(document.createElement('div')),
+const fpsBox = params.get('fps') && !recordMode ? Object.assign(document.body.appendChild(document.createElement('div')),
   { style: 'position:fixed;top:4px;right:8px;color:#8f8;font:14px monospace;z-index:9' }) : null;
 let fpsCount = 0, fpsAt = performance.now(), petalPeak = 0, petalPeakAt = 0;
 window.fpsLast = 0;
@@ -1073,7 +1211,7 @@ function renderBlobs() {
   }
   const dt = Math.min((now - lastFrame) / 1000, 0.05); lastFrame = now;
   if (!agingPaused) fieldTime += dt * 1000;
-  { const c = stepToneFade(now); if (c !== null) colorHistory.push([now, c]); }
+  stepSweep(now);
   stepApproaches(now);
   stepFlares(now, dt);
   // T fast-forwards: the requested aging is spread over FF_MS of real time so it can be watched
@@ -1166,15 +1304,14 @@ function renderBlobs() {
     push = Math.min(push, 1.6);
     scale *= 1 + 0.18 * Math.min(speed / 25, 1) + 0.45 * bloom[i] + 0.12 * Math.min(flare[i], 1);   // and open up
 
-    // colour: this flower's own shade of the (delayed) tone; re-tint only when it changed
-    const tone = colorAt(blobDelay[i]) || '#000';
+    // colour: this flower's own shade of its tone; the bucket changes only when the quantized shade does
     let c;
     if (isGlow[i]) {
-      c = glowSrc[i] >= 0 ? tint(tone, glowSrc[i]) : tone;           // the borrowed shade
+      c = glowSrc[i] >= 0 ? tintOf(glowSrc[i]) : SEASONS[season].base;   // the borrowed shade
       const u = (now - glowSwapAt[i]) / GLOW_FADE_MS;
       if (u < 1 && glowPrev[i]) c = hclFade(glowPrev[i], c)(Math.round(u * 12) / 12);
     } else {
-      c = tint(tone, i);
+      c = tintOf(i);
       if (life[2] > 0) c = quantizeStr(wither(c, Math.round(life[2] * 8) / 8));   // in steps, so a withering flower changes bucket 8 times, not every frame
       if (apWarm[i] > 0.02) c = quantizeStr(hclFade(c, APPROACH.warm)(Math.round(apWarm[i] * 0.7 * 8) / 8));   // warmer near an approach, in 8 steps
     }
@@ -1322,6 +1459,7 @@ function renderBlobs() {
   const cutoff = now - spreadMs - 2000;
   while (colorHistory.length > 1 && colorHistory[1][0] < cutoff) colorHistory.shift();
   while (hands.length && now - hands[0].t0 > hands[0].ms) hands.shift();
+  drawCaptions(now); drawCountdown(now);
   requestAnimationFrame(renderBlobs);
 }
 if (lightMode === 'blobs') requestAnimationFrame(renderBlobs);
@@ -1331,7 +1469,7 @@ function paint(color) {
     document.body.style.background =
       `radial-gradient(circle at 50% 50%, ${color} 0%, ${color} 25%, #000 75%) no-repeat`;
   } else if (lightMode === 'blobs') {
-    colorHistory.push([performance.now(), color]);   // the render loop paints it, per-flower delayed
+    if (!sweep || sweep.hex !== color) { startSweep(color, fadeMs); sweep.hex = color; }   // a bare 'hex' sweeps like a key
   } else {
     document.body.style.backgroundColor = color;
   }
@@ -1369,6 +1507,7 @@ function playSound(soundLink, duration) {   // the original per-key sound (needs
 // ring together as a chord. Two people at two points land on the same scale, so they harmonize.
 const clamp01 = (v) => Math.min(1, Math.max(0, v));
 const sfxVol = clamp01(Number(params.get('sfx') ?? 0.35)), ambVol = clamp01(Number(params.get('amb') ?? 0.6));
+const reverbMix = clamp01(Number(params.get('reverb') ?? 0.5));   // wet share of the shared reverb
 let soundFiles = {};        // {ambient, tap, swipe} -> url, as found at page load
 let soundSource = 'synth';  // 'synth': notes and pad from Web Audio (default). 'file': use static/sounds/ files when present
 let ambientWanted = false, ambientFile = null, ambientSynth = null, actx = null;
@@ -1398,37 +1537,47 @@ const SCALE = [220, 246.94, 277.18, 329.63, 369.99, 440, 493.88, 554.37, 659.26,
 // swipe, falling for flick, from a root picked by x across the wall. Everything goes through a
 // small room: two feedback delays with a lowpass in the loop, so the notes ring.
 const harpBuf = new Map();   // frequency -> AudioBuffer
+// ---- harp: Karplus-Strong. The string is a delay line one period long, excited by a short
+// low-passed noise burst (a fingertip, not a pick), with a one-pole low-pass at ~3 kHz in the
+// loop so the highs die first, and the loss set for a 3-4 s ring. Rendered offline into a buffer
+// once per pitch; a second string a few cents sharp adds a little shimmer.
 function pluckBuffer(c, f) {
   const key = f.toFixed(2); if (harpBuf.has(key)) return harpBuf.get(key);
-  const sr = c.sampleRate, secs = 3.2, out = c.createBuffer(1, Math.round(sr * secs), sr), d = out.getChannelData(0);
+  const sr = c.sampleRate, secs = 4.2, out = c.createBuffer(1, Math.round(sr * secs), sr), d = out.getChannelData(0);
+  const aLoop = 1 - Math.exp(-2 * Math.PI * 3000 / sr), aBurst = 1 - Math.exp(-2 * Math.PI * 1200 / sr);
   const string = (freq, gain) => {
     const N = Math.round(sr / freq), line = new Float32Array(N);
-    let s0 = 0; for (let i = 0; i < N; i++) { const w = Math.random() * 2 - 1; s0 = 0.6 * s0 + 0.4 * w; line[i] = s0; }   // a softened burst: fewer harsh highs
-    // loss per pass tuned so every note rings about 2.5 s regardless of pitch (short lines lose more per second)
-    const loss = Math.pow(0.001, N / (sr * 2.5));
-    let idx = 0, prev = line[N - 1];
+    let s0 = 0, s1 = 0;
+    for (let i = 0; i < N; i++) { const w = Math.random() * 2 - 1; s0 += aBurst * (w - s0); s1 += aBurst * (s0 - s1); line[i] = s1; }   // two-pole low-passed burst
+    const T60 = 3.5, loss = Math.pow(0.001, N / (sr * T60));
+    let idx = 0, y = 0;
     for (let i = 0; i < d.length; i++) {
-      const cur = line[idx], nxt = 0.5 * (cur + prev) * loss;
-      d[i] += nxt * gain; prev = cur; line[idx] = nxt; idx = (idx + 1) % N;
+      y += aLoop * (line[idx] - y);                     // loop low-pass
+      const nxt = y * loss;
+      d[i] += nxt * gain; line[idx] = nxt; idx = (idx + 1) % N;
     }
   };
-  string(f, 0.7); string(f * 1.0035, 0.35);                       // the second string is about 6 cents sharp
+  string(f, 0.75); string(f * 1.0025, 0.3);
   let peak = 0; for (let i = 0; i < d.length; i++) peak = Math.max(peak, Math.abs(d[i]));
   if (peak > 0) for (let i = 0; i < d.length; i++) d[i] /= peak;
   harpBuf.set(key, out); return out;
 }
-let room = null;   // {input} built once per AudioContext
+// ---- the room: one generated impulse (5 s, stereo, exponential tail) in a convolver, shared by
+// the pad and the harp, with a high-shelf cut on the wet path so nothing hisses. reverb= sets the wet share.
+let room = null;   // {ctx, input}
 function roomBus(c) {
   if (room && room.ctx === c) return room.input;
   const input = c.createGain(), dry = c.createGain(), wet = c.createGain();
-  dry.gain.value = 0.8; wet.gain.value = 0.35;
-  input.connect(dry).connect(c.destination); wet.connect(c.destination);
-  for (const [secs, fb] of [[0.083, 0.5], [0.127, 0.45]]) {          // two loops so the echoes smear rather than repeat
-    const delay = c.createDelay(1); delay.delayTime.value = secs;
-    const lp = c.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 2600;
-    const g = c.createGain(); g.gain.value = fb;
-    input.connect(delay); delay.connect(lp); lp.connect(g); g.connect(delay); lp.connect(wet);
+  dry.gain.value = 1 - 0.35 * reverbMix; wet.gain.value = reverbMix;
+  const secs = 5, n = Math.round(c.sampleRate * secs), ir = c.createBuffer(2, n, c.sampleRate);
+  for (let ch = 0; ch < 2; ch++) {
+    const d = ir.getChannelData(ch); let lp = 0;
+    for (let i = 0; i < n; i++) { const t = i / c.sampleRate; lp += 0.35 * ((Math.random() * 2 - 1) - lp); d[i] = lp * Math.exp(-t * Math.log(1000) / secs) * (t < 0.02 ? t / 0.02 : 1); }
   }
+  const conv = c.createConvolver(); conv.buffer = ir;
+  const shelf = c.createBiquadFilter(); shelf.type = 'highshelf'; shelf.frequency.value = 3500; shelf.gain.value = -8;
+  input.connect(dry).connect(masterOut(c));
+  input.connect(conv); conv.connect(shelf); shelf.connect(wet); wet.connect(masterOut(c));
   room = { ctx: c, input }; return input;
 }
 function playNote(x, kind) {
@@ -1437,40 +1586,19 @@ function playNote(x, kind) {
   const n = 3 + (Math.random() < 0.5 ? 1 : 0);
   const steps = [0, 2, 4, 7].slice(0, n).map((k) => Math.min(SCALE.length - 1, root + k));   // root, third, fifth, octave in scale steps
   if (kind === 'flick') steps.reverse();
-  const bus = roomBus(c), vol = sfxVol * (kind === 'flick' ? 0.9 : 0.75);
+  const bus = roomBus(c), vol = sfxVol * (kind === 'flick' ? 0.55 : 0.45);   // low: the harp sits under the pad
   let t = c.currentTime + 0.01;
   steps.forEach((idx, k) => {
     const src = c.createBufferSource(); src.buffer = pluckBuffer(c, SCALE[idx]);
-    const g = c.createGain(); g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(vol * (1 - 0.08 * k), t + 0.003);   // under 5 ms in
-    src.connect(g).connect(bus); src.start(t); src.stop(t + 3.2);
-    t += (0.04 + Math.random() * 0.03);
+    const g = c.createGain(); g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(vol * (1 - 0.08 * k), t + 0.003);
+    src.connect(g).connect(bus); src.start(t); src.stop(t + 4.2);
+    t += 0.06 + Math.random() * 0.03 + (Math.random() - 0.5) * 0.02;   // 60-90 ms apart, with a little wobble
   });
 }
-// tap: a soft low-passed pluck, 400-600 Hz, 5 ms attack (no click), 300 ms decay
-function synthTap() {
-  const c = getAudioCtx(); if (!c) return;
-  const t = c.currentTime;
-  const osc = c.createOscillator(); osc.type = 'triangle'; osc.frequency.value = 400 + Math.random() * 200;
-  const lp = c.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 1400; lp.Q.value = 0.7;
-  const g = c.createGain();
-  g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(sfxVol * 0.8, t + 0.005); g.gain.exponentialRampToValueAtTime(0.0005, t + 0.3);
-  osc.connect(lp).connect(g).connect(c.destination); osc.start(t); osc.stop(t + 0.32);
-}
-// swipe: noise shaped like a brush stroke, 250 ms, band-passed 1-3 kHz, quiet
-function synthSwipe() {
-  const c = getAudioCtx(); if (!c) return;
-  const t = c.currentTime, n = Math.round(c.sampleRate * 0.25);
-  const buf = c.createBuffer(1, n, c.sampleRate), d = buf.getChannelData(0);
-  for (let i = 0; i < n; i++) d[i] = Math.random() * 2 - 1;
-  const src = c.createBufferSource(); src.buffer = buf;
-  const bp = c.createBiquadFilter(); bp.type = 'bandpass'; bp.Q.value = 0.9;
-  bp.frequency.setValueAtTime(1200, t); bp.frequency.linearRampToValueAtTime(2800, t + 0.12); bp.frequency.linearRampToValueAtTime(1500, t + 0.25);
-  const g = c.createGain();
-  g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(sfxVol * 0.35, t + 0.06); g.gain.linearRampToValueAtTime(0, t + 0.25);
-  src.connect(bp).connect(g).connect(c.destination); src.start(t); src.stop(t + 0.26);
-}
-// ambient: two detuned low sines (plus a faint fifth and octave) under a low-pass, with an 8 s
-// tremolo. Oscillators run continuously, so there is no loop point to hear.
+// ---- pad: root, fifth and major ninth, no third. Detuned sines and triangles in a low register
+// through a low-pass near 1.2 kHz. Four slow LFOs at unrelated rates move the cutoff, one
+// oscillator's detune, the amplitude and the stereo position, so the texture never repeats; a
+// sixth breath per minute swells the level, shallow, never to silence. Into the shared room.
 function ambientOn() {
   ambientOff(true);
   if (useFile('ambient')) {
@@ -1478,24 +1606,32 @@ function ambientOn() {
     ambientFile.play().catch(() => {}); return;
   }
   const c = getAudioCtx(); if (!c) return;
-  const t = c.currentTime;
-  const master = c.createGain(); master.gain.setValueAtTime(0, t); master.gain.linearRampToValueAtTime(ambVol, t + 3);
-  const trem = c.createGain(); trem.gain.value = 0.75;
-  const lfo = c.createOscillator(); lfo.frequency.value = 1 / 8;
-  const lfoG = c.createGain(); lfoG.gain.value = 0.25; lfo.connect(lfoG).connect(trem.gain);
-  const lp = c.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 500;
-  const oscs = [[110, 0.5], [110.7, 0.5], [165, 0.18], [220.5, 0.08]].map(([f, v]) => {
-    const o = c.createOscillator(); o.frequency.value = f;
-    const g = c.createGain(); g.gain.value = v; o.connect(g).connect(lp); o.start(t); return o;
+  const t = c.currentTime, nodes = [];
+  const lfo = (hz, depth, target, phase = 0) => {   // a slow sine pushing `target` by +-depth
+    const o = c.createOscillator(); o.frequency.value = hz; const g = c.createGain(); g.gain.value = depth;
+    o.connect(g).connect(target); o.start(t + phase); nodes.push(o); return o;
+  };
+  const lp = c.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 1200; lp.Q.value = 0.5;
+  const voices = [[110, 'sine', 0.5, 0], [110, 'sine', 0.45, 4], [165, 'triangle', 0.16, -3], [246.94, 'sine', 0.12, 2], [220, 'triangle', 0.08, 0]];   // A2 A2 E3 B3 A3
+  const oscs = voices.map(([f, type, v, cents]) => {
+    const o = c.createOscillator(); o.type = type; o.frequency.value = f; o.detune.value = cents;
+    const g = c.createGain(); g.gain.value = v; o.connect(g).connect(lp); o.start(t); nodes.push(o); return o;
   });
-  lp.connect(trem).connect(master).connect(c.destination);
-  lfo.start(t);
-  ambientSynth = { master, nodes: [...oscs, lfo] };
+  const swell = c.createGain(); swell.gain.value = 0.72;              // breath: +-0.14 around 0.72, six per minute
+  const pan = c.createStereoPanner(); pan.pan.value = 0;
+  const master = c.createGain(); master.gain.setValueAtTime(0, t); master.gain.linearRampToValueAtTime(ambVol, t + 6);
+  lp.connect(swell).connect(pan).connect(master).connect(roomBus(c));
+  lfo(0.03, 260, lp.frequency, 0.3);                                  // cutoff drifts 940-1460 Hz
+  lfo(0.045, 5, oscs[1].detune, 1.1);                                 // the second root wanders +-5 cents
+  lfo(0.07, 0.06, swell.gain, 2.0);                                   // a slow amplitude wander
+  lfo(0.11, 0.4, pan.pan, 0.7);                                       // and a slow stereo drift
+  lfo(0.1, 0.14, swell.gain, 0);                                      // the breath, ~6 per minute
+  ambientSynth = { master, nodes };
 }
 function ambientOff(quick) {
   if (ambientFile) { ambientFile.pause(); ambientFile = null; }
   if (ambientSynth) {
-    const c = getAudioCtx(), a = ambientSynth, ms = quick ? 0.3 : 2; ambientSynth = null; if (!c) return;
+    const c = getAudioCtx(), a = ambientSynth, ms = quick ? 0.3 : 3; ambientSynth = null; if (!c) return;
     const t = c.currentTime;
     a.master.gain.cancelScheduledValues(t); a.master.gain.setValueAtTime(a.master.gain.value, t);
     a.master.gain.linearRampToValueAtTime(0, t + ms);
