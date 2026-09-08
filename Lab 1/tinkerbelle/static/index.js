@@ -48,9 +48,11 @@ const params = new URLSearchParams(window.location.search);
 //   halo=<0..1> strength of the per-flower halo (drawn in either blend)
 //   band=<deg>  hue band (wide= the outliers' band)      fog=<0..1> background patch strength
 //   fogsize=<x> background patch radius multiplier (they also get softer when > 1)
+//   centre=lit|matte   lit: the glowing centres. matte: textured, no glow; darker than the petals for
+//                      cherry, a yellow-brown dotted disc for daisy, near nothing for chrysanthemum
 const LOOKS = {
-  lights: { blend: 'additive', edge: 2, pool: 0,   grad: 'paletip',  vein: 0,   halo: 0,   band: 70, wide: 110, fog: 1,   fogsize: 1 },
-  paper:  { blend: 'layered',  edge: 2, pool: 0.3, grad: 'darkbase', vein: 0.5, halo: 0.5, band: 45, wide: 70,  fog: 0.4, fogsize: 1.5 },
+  lights: { blend: 'additive', edge: 2, pool: 0,   grad: 'paletip',  vein: 0,   halo: 0,   band: 70, wide: 110, fog: 1,   fogsize: 1,   centre: 'lit' },
+  paper:  { blend: 'layered',  edge: 2, pool: 0.3, grad: 'darkbase', vein: 0.5, halo: 0.5, band: 45, wide: 70,  fog: 0.4, fogsize: 1.5, centre: 'matte' },
 };
 const LOOK = { ...(LOOKS[params.get('look')] || LOOKS.lights) };
 for (const k of Object.keys(LOOK)) {
@@ -661,6 +663,26 @@ function buildGlowSprite() {
 function buildCentreSprite(kind) {
   const cv = makeCanvas(), c = cv.getContext('2d');
   const disc = (r, stops) => { const g = c.createRadialGradient(C, C, 0, C, C, r); stops.forEach(([o, col]) => g.addColorStop(o, col)); c.fillStyle = g; c.fillRect(0, 0, S, S); };
+  if (LOOK.centre === 'matte') {
+    // matte: no glow, a firm edge, some texture
+    if (kind === 'daisy') {
+      disc(R * 0.24, [[0, '#c9922f'], [0.7, '#a86f22'], [0.93, '#7a4d17'], [1, 'rgba(122,77,23,0)']]);
+      for (let k = 0; k < 90; k++) {                                 // florets: a speckle of lighter and darker dots
+        const a = rand() * Math.PI * 2, d = Math.sqrt(rand()) * R * 0.21;
+        c.fillStyle = rand() < 0.5 ? 'rgba(232,186,90,0.55)' : 'rgba(90,55,15,0.5)';
+        c.beginPath(); c.arc(C + Math.cos(a) * d, C + Math.sin(a) * d, R * 0.016, 0, Math.PI * 2); c.fill();
+      }
+    }
+    else if (kind === 'cherry') {
+      disc(R * 0.11, [[0, 'rgba(78,22,52,0.95)'], [0.85, 'rgba(78,22,52,0.9)'], [1, 'rgba(78,22,52,0)']]);
+      c.fillStyle = '#c9a862';
+      for (let k = 0; k < 7; k++) { const a = k * Math.PI * 2 / 7 + 0.4; c.beginPath(); c.arc(C + Math.cos(a) * R * 0.17, C + Math.sin(a) * R * 0.17, R * 0.025, 0, Math.PI * 2); c.fill(); }
+    }
+    else if (kind === 'mum') disc(R * 0.06, [[0, 'rgba(60,20,40,0.6)'], [0.8, 'rgba(60,20,40,0.5)'], [1, 'rgba(60,20,40,0)']]);
+    else if (kind === 'starY') disc(13, [[0, '#d9c27a'], [0.8, '#b89a4a'], [1, 'rgba(184,154,74,0)']]);
+    else disc(13, [[0, '#d8cdb5'], [0.8, '#b3a88f'], [1, 'rgba(179,168,143,0)']]);
+    return cv;
+  }
   if (kind === 'daisy') disc(R * 0.26, [[0, '#ffc93d'], [0.55, '#f0962c'], [0.85, 'rgba(214,110,30,0.6)'], [1, 'rgba(214,110,30,0)']]);
   else if (kind === 'cherry') {
     disc(R * 0.13, [[0, 'rgba(70,18,48,0.95)'], [0.7, 'rgba(70,18,48,0.7)'], [1, 'rgba(70,18,48,0)']]);
