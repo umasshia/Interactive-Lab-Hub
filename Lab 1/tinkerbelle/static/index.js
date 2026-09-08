@@ -37,6 +37,26 @@ const control = document.getElementById('control');
 // petal for flowers that are dying, and the GPU-backed 2D canvas handles that easily.
 // ============================================================================
 const params = new URLSearchParams(window.location.search);
+// ---- look: how the flowers are drawn. Two default sets, and every property can be set on its own:
+//   look=lights|paper
+//   blend=additive|layered   additive: bodies add up like light. layered: petals darken where they
+//                            overlap inside a flower, flowers sit over each other at ~0.8 alpha sorted
+//                            by size, and a soft halo per flower is drawn additively underneath
+//   edge=<px>   petal edge softness      pool=<0..1>  darkening at the petal rim, like watercolour pooling
+//   grad=paletip|darkbase    base-to-tip gradient: pale base and colour at the tip / darker base, lightest mid
+//   vein=<0..1> central vein and a little noise inside the petal
+//   halo=<0..1> strength of the per-flower halo (drawn in either blend)
+//   band=<deg>  hue band (wide= the outliers' band)      fog=<0..1> background patch strength
+//   fogsize=<x> background patch radius multiplier (they also get softer when > 1)
+const LOOKS = {
+  lights: { blend: 'additive', edge: 2, pool: 0,   grad: 'paletip',  vein: 0,   halo: 0,   band: 70, wide: 110, fog: 1,   fogsize: 1 },
+  paper:  { blend: 'layered',  edge: 2, pool: 0.3, grad: 'darkbase', vein: 0.5, halo: 0.5, band: 45, wide: 70,  fog: 0.4, fogsize: 1.5 },
+};
+const LOOK = { ...(LOOKS[params.get('look')] || LOOKS.lights) };
+for (const k of Object.keys(LOOK)) {
+  if (params.get(k) === null) continue;
+  LOOK[k] = typeof LOOK[k] === 'number' ? Number(params.get(k)) : params.get(k);
+}
 // ?debug=1 shows runtime errors on the page itself (useful on a phone with no console)
 if (params.get('debug')) window.addEventListener('error', (e) => {
   const d = document.createElement('pre');
@@ -66,16 +86,19 @@ const blobSpots = [];
   while (blobSpots.length < blobCount && tries++ < blobCount * 40) {
     const u = rand();
     const tier = u < 0.04 ? 2 : u < 0.43 ? 1 : 0;
-    const r = tier === 2 ? 8 + rand() * 6 : tier === 1 ? 3.2 + rand() * 2.2 : 1.7 + rand() * 1.3;
+    const r = tier === 2 ? (8 + rand() * 6) * LOOK.fogsize : tier === 1 ? 3.2 + rand() * 2.2 : 1.7 + rand() * 1.3;
     const x = 2 + rand() * 96, y = 2 + rand() * 96;
     const minGap = tier === 0 ? 2.0 : tier === 1 ? 3.2 : 9;
-    if (blobSpots.some(([bx, by, br]) => Math.hypot(bx - x, by - y) < minGap && (br > 6) === (r > 6))) continue;
-    blobSpots.push([x, y, r, TIER[tier].op, tier]);
+    if (blobSpots.some(([bx, by, br]) => Math.hypot(bx - x, by - y) < minGap && (br > 6) === (r > 6))) continue;   // (patches are always > 6)
+    blobSpots.push([x, y, r, TIER[tier].op * (tier === 2 ? LOOK.fog : 1), tier]);
   }
   blobSpots.sort((a, b) => b[2] - a[2]);   // big faint glows first, so they sit behind the flowers
 }
-const isGlow = blobSpots.map(([, , r]) => r > 6);
+const isGlow = blobSpots.map((b) => b[4] === 2);
 const tierOf = blobSpots.map((b) => b[4]);
+// layered blend draws bodies back to front by radius, so a large flower sits in front of small ones
+const bodyOrder = blobSpots.map((_, i) => i).filter((i) => !isGlow[i]).sort((a, b) => blobSpots[a][2] - blobSpots[b][2]);
+const patchOrder = blobSpots.map((_, i) => i).filter((i) => isGlow[i]);
 
 // ---- colour ripple: changes travel outward from the centre of the field
 const origin = [50, 50];
@@ -186,7 +209,7 @@ function setExposure(v) { exposure = Math.round(Math.min(2, Math.max(0.6, v)) * 
 
 // how old a flower is and what that looks like: [scale, alpha, wither 0..1, blur px]
 // The blur is the flower's glow: soft in full bloom, tight for buds and withering flowers.
-const BLUR_FULL = 2.0, BLUR_TIGHT = 0.3;
+const BLUR_FULL = LOOK.edge, BLUR_TIGHT = Math.min(0.3, LOOK.edge);   // edge= is the softness in full bloom
 function lifeLook(i) {
   const age = fieldTime - birth[i];
   if (age < BUD_MS) { const u = d3.easeSinOut(age / BUD_MS); return [0.25 + 0.75 * u, u, 0, BLUR_TIGHT + (BLUR_FULL - BLUR_TIGHT) * u]; }
@@ -482,7 +505,8 @@ const SEASONS = [
 // URL overrides apply to every season
 {
   const num = (k) => params.get(k) !== null ? Number(params.get(k)) : null;
-  const band = num('band'), wide = num('wide'), full = num('full'), paleShare = num('pale');
+  const band = params.get('band') !== null ? num('band') : LOOK.band, wide = params.get('wide') !== null ? num('wide') : LOOK.wide;
+  const full = num('full'), paleShare = num('pale');
   const sat = params.get('sat') ? params.get('sat').split(',').map(Number) : null;
   for (const sn of SEASONS) {
     if (band !== null) sn.band = band; if (wide !== null) sn.wide = wide;
@@ -512,7 +536,7 @@ function seasonOp(k) {
 //   petals  count range        rings   [distance from centre, length] per ring, as a fraction of R
 //   width   petal width as a fraction of its length
 const SPECIES = {
-  cherry: { petals: [5, 6],   rings: [[0.14, 0.82]],                               width: 0.62 },
+  cherry: { petals: [5, 6],   rings: [[0.14, 0.82]],                               width: 0.62, grad: 'paletip' },   // cherry is always pale at the base
   daisy:  { petals: [13, 21], rings: [[0.20, 0.78], [0.16, 0.50]],                 width: 0.24, innerEvery: 2 },
   mum:    { petals: [9, 12],  rings: [[0.10, 0.88], [0.08, 0.68], [0.06, 0.46]],   width: 0.22 },
   star:   { petals: [8, 10],  rings: [[0.10, 0.86]],                               width: 0.40 },
@@ -596,9 +620,25 @@ const PETAL_PATHS = {
 };
 function buildPetalSprite(name) {
   const cv = makeCanvas(P, P), c = cv.getContext('2d');
-  const g = c.createLinearGradient(0, P * 0.95, 0, P * 0.05);       // bright base -> dimmer tip
-  g.addColorStop(0, 'rgb(250,250,250)'); g.addColorStop(0.55, 'rgb(225,225,225)'); g.addColorStop(1, 'rgb(150,150,150)');
+  const grad = SPECIES[name].grad || LOOK.grad;
+  const g = c.createLinearGradient(0, P * 0.95, 0, P * 0.05);       // base -> tip
+  if (grad === 'darkbase') { g.addColorStop(0, 'rgb(190,190,190)'); g.addColorStop(0.6, 'rgb(252,252,252)'); g.addColorStop(1, 'rgb(228,228,228)'); }
+  else                     { g.addColorStop(0, 'rgb(250,250,250)'); g.addColorStop(0.55, 'rgb(225,225,225)'); g.addColorStop(1, 'rgb(150,150,150)'); }
   c.fillStyle = g; c.beginPath(); PETAL_PATHS[name](c); c.fill();
+  c.save(); c.clip();
+  if (LOOK.pool > 0) {                                              // rim darkening: an inner stroke, like pigment pooling at the edge
+    c.strokeStyle = `rgba(0,0,0,${(0.35 * LOOK.pool).toFixed(3)})`; c.lineWidth = 2.6; c.beginPath(); PETAL_PATHS[name](c); c.stroke();
+  }
+  if (LOOK.vein > 0) {                                              // a central vein fading toward the tip, and a light speckle
+    const vein = c.createLinearGradient(0, P * 0.95, 0, P * 0.05);
+    vein.addColorStop(0, `rgba(0,0,0,${(0.14 * LOOK.vein).toFixed(3)})`); vein.addColorStop(0.8, `rgba(0,0,0,${(0.06 * LOOK.vein).toFixed(3)})`); vein.addColorStop(1, 'rgba(0,0,0,0)');
+    c.strokeStyle = vein; c.lineWidth = 1.3; c.beginPath(); c.moveTo(P / 2, P * 0.93); c.lineTo(P / 2, P * 0.12); c.stroke();
+    for (let k = 0; k < 140; k++) {
+      c.fillStyle = `rgba(${rand() < 0.5 ? '0,0,0' : '255,255,255'},${(0.10 * LOOK.vein * rand()).toFixed(3)})`;
+      c.fillRect(rand() * P, rand() * P, 1.5, 1.5);
+    }
+  }
+  c.restore();
   return cv;
 }
 const petalSprites = Object.fromEntries(Object.keys(SPECIES).map((n) => [n, buildPetalSprite(n)]));
@@ -613,7 +653,8 @@ function tintPetal(name, color) {
 function buildGlowSprite() {
   const cv = makeCanvas(), ctx = cv.getContext('2d');
   const g = ctx.createRadialGradient(C, C, 0, C, C, C);
-  g.addColorStop(0, 'rgba(250,250,250,1)'); g.addColorStop(0.35, 'rgba(250,250,250,0.55)'); g.addColorStop(1, 'rgba(250,250,250,0)');
+  const soft = LOOK.fogsize > 1;                                    // larger patches also fall off more gently
+  g.addColorStop(0, `rgba(250,250,250,${soft ? 0.8 : 1})`); g.addColorStop(soft ? 0.25 : 0.35, `rgba(250,250,250,${soft ? 0.4 : 0.55})`); g.addColorStop(1, 'rgba(250,250,250,0)');
   ctx.fillStyle = g; ctx.fillRect(0, 0, S, S);
   return cv;
 }
@@ -655,7 +696,9 @@ function onFlowerGone(j, now) {
 
 let canvas, ctx, W = 0, H = 0, dpr = 1;
 let shape = [], shapeBlur = [], tinted = [], tintedColor = [], centreSprites = {}, glowSprite;
+let halo = [];   // per flower: the glow sprite in this flower's colour, drawn additively under the body when halo > 0
 const drawX = blobSpots.map(() => 0), drawY = blobSpots.map(() => 0), drawSize = blobSpots.map(() => 0), drawSway = blobSpots.map(() => 0);
+const drawAlpha = blobSpots.map(() => 0), drawPush = blobSpots.map(() => 0), drawBloom = blobSpots.map(() => 1), drawOn = blobSpots.map(() => false);
 if (lightMode) {
   document.documentElement.style.height = '100%';
   document.body.style.margin = '0';
@@ -679,6 +722,7 @@ if (lightMode === 'blobs') {
   shape = blobSpots.map((_, i) => isGlow[i] ? glowSprite : makeCanvas());
   shapeBlur = blobSpots.map(() => -1);
   tinted = blobSpots.map(() => makeCanvas());
+  halo = blobSpots.map((_, i) => isGlow[i] || LOOK.halo <= 0 ? null : makeCanvas());
   tintedColor = blobSpots.map(() => null);
   resetField();
   glowSrc.forEach((_, i) => { if (isGlow[i]) glowSrc[i] = nearestLiving(i); });
@@ -691,12 +735,18 @@ function compose(i, blur) {
   c.setTransform(1, 0, 0, 1, 0, 0); c.globalCompositeOperation = 'source-over'; c.clearRect(0, 0, S, S);
   c.filter = blur > 0.05 ? `blur(${blur}px)` : 'none';
   c.translate(C, C); c.scale(squash[i][0], squash[i][1]);
-  for (const p of petalsOf[i]) {
+  // layered: petals multiply where they overlap (the greyscale product is darker), so rings read as
+  // layers of pigment. Inner rings first so the outer ring lies on top.
+  const layered = LOOK.blend === 'layered';
+  const order = layered ? [...petalsOf[i]].sort((a, b) => b.ring - a.ring) : petalsOf[i];
+  if (layered) c.globalCompositeOperation = 'multiply';
+  for (const p of order) {
     const ph = p.len * R, pw = ph * sp.width * p.w;
-    c.save(); c.rotate(p.ang); c.globalAlpha = p.ring === 0 ? 1 : 0.9;
+    c.save(); c.rotate(p.ang); c.globalAlpha = layered ? 0.92 : (p.ring === 0 ? 1 : 0.9);
     c.drawImage(sprite, -pw / 2, -(p.dist * R) - ph, pw, ph);
     c.restore();
   }
+  c.globalCompositeOperation = 'source-over';
   c.filter = 'none'; c.setTransform(1, 0, 0, 1, 0, 0);
   shapeBlur[i] = blur;
 }
@@ -720,6 +770,13 @@ function retint(i, color) {
     t.translate(C, C); t.scale(squash[i][0], squash[i][1]);
     t.drawImage(centreSprites[kind], -C, -C);
     t.setTransform(1, 0, 0, 1, 0, 0); t.globalAlpha = 1;
+    if (halo[i]) {                                                 // the halo: the soft glow sprite in this colour
+      const h = halo[i].getContext('2d');
+      h.globalCompositeOperation = 'source-over'; h.clearRect(0, 0, S, S); h.drawImage(glowSprite, 0, 0);
+      h.globalCompositeOperation = 'multiply'; h.fillStyle = color; h.fillRect(0, 0, S, S);
+      h.globalCompositeOperation = 'destination-in'; h.drawImage(glowSprite, 0, 0);
+      h.globalCompositeOperation = 'source-over';
+    }
   }
   tintedColor[i] = color;
 }
@@ -796,10 +853,11 @@ function renderBlobs() {
   ctx.globalCompositeOperation = 'source-over';
   ctx.globalAlpha = 1;
   ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H);
-  ctx.globalCompositeOperation = 'lighter';       // additive: overlapping flowers brighten, like light on a wall
   const long = Math.max(W, H);
 
+  // pass 0: every flower's state for this frame (life, colour, position, glow); drawing comes after
   blobSpots.forEach(([bx, by, br, op], i) => {
+    drawOn[i] = false;
     // where in its life this flower is. A touched flower is not drawn while its petals are away.
     let life = [1, 1, 0];
     if (!isGlow[i]) {
@@ -848,17 +906,44 @@ function renderBlobs() {
     const size = br * sizeMul[i] * 2 / 100 * long * scale;
     const sway = (rotation[i] + 6 * Math.sin(now / 5200 + phase[i])) * Math.PI / 180;
     drawX[i] = x; drawY[i] = y; drawSize[i] = size; drawSway[i] = sway;   // where it is, for its petals if it dies
-    ctx.save();
-    ctx.translate(x, y); ctx.rotate(sway);
-    const alpha = Math.min(1, op * exposure);     // exposure lifts flower and glow-patch alpha alike
-    ctx.globalAlpha = alpha * visibility;
-    ctx.drawImage(tinted[i], -size / 2, -size / 2, size, size);
-    if (push > 0.02) {                            // brighten while moving: draw again, additively
-      ctx.globalAlpha = alpha * visibility * 0.6 * Math.min(push, 1);
-      ctx.drawImage(tinted[i], -size / 2, -size / 2, size, size);
-    }
-    ctx.restore();
+    drawAlpha[i] = Math.min(1, op * exposure) * visibility;                 // exposure lifts flower and glow-patch alpha alike
+    drawPush[i] = push; drawBloom[i] = life[0]; drawOn[i] = true;
   });
+
+  const body = (i, alpha) => {
+    ctx.save(); ctx.translate(drawX[i], drawY[i]); ctx.rotate(drawSway[i]);
+    ctx.globalAlpha = alpha;
+    ctx.drawImage(tinted[i], -drawSize[i] / 2, -drawSize[i] / 2, drawSize[i], drawSize[i]);
+    ctx.restore();
+  };
+  // background patches and halos: always additive, always underneath
+  ctx.globalCompositeOperation = 'lighter';
+  for (const i of patchOrder) if (drawOn[i]) body(i, drawAlpha[i]);
+  if (LOOK.halo > 0) for (const i of bodyOrder) {
+    if (!drawOn[i]) continue;
+    const hs = drawSize[i] * 1.6 * (0.7 + 0.3 * drawBloom[i]);              // scaled to the flower's size and bloom
+    const a = drawAlpha[i] * LOOK.halo * (0.5 + 0.6 * Math.min(drawPush[i], 1));
+    if (a < 0.01) continue;
+    ctx.globalAlpha = Math.min(1, a);
+    ctx.drawImage(halo[i], drawX[i] - hs / 2, drawY[i] - hs / 2, hs, hs);
+  }
+  if (LOOK.blend === 'layered') {
+    // bodies over each other at ~0.8 alpha, small to large so large flowers occlude
+    ctx.globalCompositeOperation = 'source-over';
+    for (const i of bodyOrder) {
+      if (!drawOn[i]) continue;
+      body(i, drawAlpha[i] * 0.8);
+      if (drawPush[i] > 0.02) { ctx.globalCompositeOperation = 'lighter'; body(i, drawAlpha[i] * 0.45 * Math.min(drawPush[i], 1)); ctx.globalCompositeOperation = 'source-over'; }
+    }
+  } else {
+    // additive: overlapping flowers brighten, like light on a wall (the original look)
+    ctx.globalCompositeOperation = 'lighter';
+    for (const i of bodyOrder) {
+      if (!drawOn[i]) continue;
+      body(i, drawAlpha[i]);
+      if (drawPush[i] > 0.02) body(i, drawAlpha[i] * 0.6 * Math.min(drawPush[i], 1));   // brighten while moving: draw again
+    }
+  }
 
   // detached petals: the burst slows, then each petal drifts and tumbles about the wall, bouncing
   // off the edges and off other petals, until its gather time; then it flies home along an eased
@@ -936,10 +1021,11 @@ function renderBlobs() {
     }
     ctx.save();
     ctx.translate(p.x, p.y); ctx.rotate(p.ang);
+    ctx.globalCompositeOperation = LOOK.blend === 'layered' ? 'source-over' : 'lighter';
     ctx.globalAlpha = 0.95;
     ctx.drawImage(p.sprite, -p.w / 2, -p.len / 2, p.w, p.len);
     const fl = 1 - (now - p.flash) / 200;                      // a 200 ms flash on contact, drawn again additively
-    if (fl > 0) { ctx.globalAlpha = fl * bump; ctx.drawImage(p.sprite, -p.w / 2, -p.len / 2, p.w, p.len); }
+    if (fl > 0) { ctx.globalCompositeOperation = 'lighter'; ctx.globalAlpha = fl * bump; ctx.drawImage(p.sprite, -p.w / 2, -p.len / 2, p.w, p.len); }
     ctx.restore();
   }
 
