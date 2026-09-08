@@ -119,42 +119,6 @@ Tinkerbelle out of the box can only turn a screen one flat colour, and a flat co
 
 *This describes the second week's work for this lab activity.*
 
-## How to drive it
-
-Start the server from the [`tinkerbelle`](tinkerbelle/) folder (`python tinker.py`), then open two browser windows on the same machine or network:
-
-| Window | URL | Then |
-|---|---|---|
-| Light (projector) | `http://<ip>:5001/?mode=blobs&season=cherry&fps=1` | click **Tinkerbelle** once (fullscreen, and unlocks audio) |
-| Wizard (laptop) | `http://<ip>:5001/?point=30,50&point2=70,50` | click **Wizard**; keep this window visible during a take |
-
-The wizard page shows a small preview rectangle of the wall. Click it where the visitor's hand is to set the touch point; shift-click sets a second point. Both show as dots, and the URL's `point` / `point2` (percent across, down) are the starting values. Gestures land at the first point; hold **Shift** with a gesture and it lands at the second, so two people touching two places is two keypresses. Light-page options: `look=lights` or `look=paper` (two sets of drawing defaults; each property can also be set on its own: `blend`, `edge`, `pool`, `grad`, `vein`, `halo`, `band`, `wide`, `fog`, `fogsize`, `centre`, listed at the top of `static/index.js`), `gather=12` (centre of the window, in seconds, in which petals fly home; each petal picks its own moment and takes 4 to 7 s, so a flower reassembles over 15 to 20 s), `bump=0.7` (flash when petals collide), `wave=0.3`, `exposure=1.6`, `band=70`, `wide=110`, `sat=0.6,0.9`, `full=0.25`, `pale=0.15`, `sfx=0.35`, `amb=0.6`, `count=320`, `dir=right`.
-
-| Group | Key | What the light does |
-|---|---|---|
-| Colours | `1` `2` | emerald / violet idle, 6 s fades |
-| | `7` `8` `3` `4` | a bloom in stages: bud green, soft pink, magenta, gold |
-| | `5` `6` | teal / blue |
-| | `G` / `K` | whole field warm (the Part 1 approach) / resting dim violet-blue |
-| | `0` | black |
-| Gestures | `Space` | tap: flowers near the point burst into petals; the petals drift and tumble across the wall, bounce off each other, and after 12 s fly home and the same flowers recompose. The rest of the field ripples |
-| | `←` `↑` `→` `↓` | swipe: same, then a hand sweeps through in that direction |
-| | `Enter` | flick: flowers along a line from the point burst, petals fly downwind |
-| | `D` / `H` | drag / hold: flowers move or gather, nothing dies |
-| | `A` | approach: flowers near the point drift toward it, twinkle for 4 s and warm; `Shift+A` at the second point |
-| | `L` | leave: both approaches relax home and cool over 2 s |
-| | `Shift` + gesture | at the second point |
-| Seasons | `S` | next season: cherry → summer → autumn; base colour fades over 5 s, new flowers take the new palette |
-| Field | `T` | age the field 40 s (shows the life cycle on camera) |
-| | `R` | reset every slot to full bloom |
-| | `Z` | pause / resume natural aging (touch still kills, patches still regrow) |
-| Sound | `M` / `N` | ambient pad on / off |
-| | `B` | sound source: Web Audio synth ↔ files in `static/sounds/` |
-| Exposure | `[` / `]` | darker / brighter, 0.6 to 2.0 |
-| Solo | `P` / `Esc` | run / cancel the scripted take |
-
-Every tap, swipe and flick plays a note from a pentatonic scale in the pad's key, chosen by the touch point's position across the wall: low on the left, high on the right. Notes ring for about 2 s, so gestures a moment apart, or two people at two points, sound as a chord. Two people touching in different places send two clouds of petals into each other: the petals collide and bounce, then each cloud flies home to its own flowers. Flying petals that cross a living flower make it flare, and the flare hops to neighbouring flowers, weaker each hop (`wave=0.3` on the light URL sets how far it carries). The petal and centre drawings are SVG artwork from a Claude Design sheet, in `tinkerbelle/static/petals/` as `<species>-a/b/c.svg` and `<species>-centre.svg` (greyscale with alpha, petal pointing up, base at the bottom); the page rasterizes them once at load, crops each petal to its own bounds, and tints them per flower. `gen-petals.js` in that folder regenerates them. Sound files can replace the synth: put `ambient.mp3`, `tap.mp3`, `swipe.mp3` (ogg, wav or m4a also work) in `tinkerbelle/static/sounds/`, reload the light page, and press `B`.
-
 ## Prep (before the next lab)
 
 Find three other groups. (How? Maybe Slack?) Visit their Lab Hub pages, watch their
@@ -193,7 +157,113 @@ your response engages with what your master was really doing.
 **Document everything here — especially the storyboard and video. Photos of the
 prototype are great too.**
 
-**Credits:** Ambient track: "Uplifting Pad Texture" by samuelfjohanns, from Pixabay, used under the Pixabay Content License.
+### What we changed and why
+
+We combined two of the three moves: we remixed the modality by adding sound, and we fixed a weakness we saw in our own Part 1 build, that touching the flowers changed nothing.
+
+Sound came first because the original has it. Borderless is not silent, and in Part 1 our wall was. Sound is also the cheapest way to pull a visitor further in, and it gave us an answer to one of the peer questions: with each gesture playing a note, two people touching the wall at once make a chord instead of two separate events.
+
+The second change came from looking at our own Part 1 build. Our flowers rippled when touched and drifted back home, and nothing about the field was different after someone left. That is not what the original does. In Borderless, touching a flower scatters it. So we made touch take the flower apart: the petals fly off and the spot stays empty. We first planned for a different flower to grow back in the empty spot. Shuning's storyboard had the petals gathering back into the same flower instead, and we built to the storyboard. The field still outlasts us, which is what Part 1 was about for us. Now it also shows that we were there.
+
+The peer questions about two people and about a visitor knowing they can interact both fed in. Two touch points, petal collisions and the flare wave are the two-people answer. The local approach, flowers gathering and twinkling near the person, is our answer to discoverability, and it is a change from Part 1, where approaching turned the whole wall warm.
+
+### How it works
+
+In Part 1 a tap only pushed the flowers aside. Now a touch takes the flower apart. When the visitor taps, swings a hand across the wall, or flicks, the flowers under the hand burst into their own petals, the same drawings in the same colours, and the petals drift and tumble across the field. A swing throws them along the path of the hand, a flick sends them downwind, a tap scatters them outward. After a while each petal turns for home on its own and flies back, and the flower reassembles as its petals land, with a small glow when the last one arrives. The field heals, but it heals petal by petal, so a touch stays visible for a while.
+
+Two people can now touch the wall at once. Petals from different hands collide, bounce apart, and flash where they meet, so two touches at the same time produce something neither touch makes alone. A flying petal that crosses a living flower makes that flower flare, and the flare passes to its neighbours, weaker each time, until it dies out. Approach is local now too. When someone walks up, only the flowers near them drift toward the spot, twinkle, and warm toward rose, and when they leave those flowers relax back. The rest of the field goes on as before.
+
+Every gesture also plays a sound. A tap, swing, or flick plucks a broken harp chord in a pentatonic scale, rising for a tap or swing and falling for a flick, with its root chosen by where the hand is across the wall: low on the left, high on the right. The notes ring for a couple of seconds, so gestures a moment apart, or two people at two places, sound as a chord. Underneath sits an ambient bed, either a synthesised pad or a pad texture from an audio file, that the wizard switches on at the start of a take.
+
+The field has a life of its own. Each flower buds, blooms, withers, and is replaced by a new flower in the same place with a new species, size, and shade, so the wall keeps changing when nobody is there. There are three seasons, cherry, summer, and autumn, each with its own palette and mix of species. A season change sweeps across the wall from one point, and every flower takes a new colour from the new season as the sweep reaches it. The flowers themselves are painted petals: we drew three petal shapes and a centre for each of four species (cherry, daisy, chrysanthemum, star) as greyscale artwork, and the page tints them per flower. The field is about 1400 flowers laid out in drifts with thin dark channels between them, and the wizard can brighten or dim the whole wall live for the camera.
+
+The wizard page shows a small preview of the wall. Clicking it sets the touch point, and shift-clicking sets a second one, so the wizard can follow two people at two places with one keyboard: a gesture lands at the first point, and the same gesture with Shift lands at the second. This is how we make the second video: a scripted take runs the whole sequence, approaches, touches, swings, and season changes, on a timer, draws captions on the wall as it goes, and in record mode captures the wall and the sound straight from the browser into a video file.
+
+Two things from the feedback we did not address. The hand is still located by a person at the keyboard; we did not build any detection of where a visitor's hand is or what it is doing. And the piece still reads as art: we did not give it an emotional or practical function beyond what teamLab's own work has.
+
+Credits for this part: the ambient track is "Uplifting Pad Texture" by samuelfjohanns, from Pixabay, used under the Pixabay Content License. The petal and centre artwork was drawn in Claude Design. The code changes to the Tinkerbelle fork were made with Claude Code.
+
+### Storyboards
+
+![storyboard: single touch and two touches](storyboard-touch.jpg)
+
+Single touch and two touches. Drawn by Shuning.
+
+![storyboard: single swing and two swings](storyboard-swing.jpg)
+
+Single swing and two swings. Drawn by Shuning.
+
+### Video
+
+https://youtu.be/GmXsl4PS20c
+
+We lost access to the projector after Part 1, so Part 2 is documented with a scripted screen recording with captions; the Part 1 video above shows the staging on the wall.
+
+### Photos
+
+![the field in the cherry season](images/season-cherry-1x.png)
+
+The field in the cherry season, nobody interacting.
+
+![the field in the summer season](images/season-summer-1x.png)
+
+The field in the summer season.
+
+![the field in the autumn season](images/season-autumn-1x.png)
+
+The field in the autumn season.
+
+![two touches at once, petals colliding](images/take-lights-0m59-1x.png)
+
+Two touches at once: the two clouds of petals meet in the middle (the take at 0:59).
+
+![two swings toward the centre](images/take-lights-2m24-1x.png)
+
+Two swings toward the centre, in summer (the take at 2:24).
+
+![the wizard page](images/wizard-1x.png)
+
+The wizard page: the wall preview with the two touch points, and the key legend.
+
+### How to drive it
+
+Start the server from the [`tinkerbelle`](tinkerbelle/) folder (`python tinker.py`), then open two browser windows on the same machine or network:
+
+| Window | URL | Then |
+|---|---|---|
+| Light (projector) | `http://<ip>:5001/?mode=blobs&season=cherry&fps=1` | click **Tinkerbelle** once (fullscreen, and unlocks audio) |
+| Wizard (laptop) | `http://<ip>:5001/?point=30,50&point2=70,50` | click **Wizard**; keep this window visible during a take |
+
+The wizard page shows a small preview rectangle of the wall. Click it where the visitor's hand is to set the touch point; shift-click sets a second point. Both show as dots, and the URL's `point` / `point2` (percent across, down) are the starting values. Gestures land at the first point; hold **Shift** with a gesture and it lands at the second, so two people touching two places is two keypresses. Light-page options: `look=lights` or `look=paper` (two sets of drawing defaults; each property can also be set on its own: `blend`, `edge`, `pool`, `grad`, `vein`, `halo`, `band`, `wide`, `fog`, `fogsize`, `centre`, listed at the top of `static/index.js`), `gather=12` (centre of the window, in seconds, in which petals fly home; each petal picks its own moment and takes 4 to 7 s, so a flower reassembles over 15 to 20 s), `bump=0.7` (flash when petals collide), `wave=0.3`, `exposure=1.6`, `band=70`, `wide=110`, `sat=0.6,0.9`, `full=0.25`, `pale=0.15`, `sfx=0.35`, `amb=0.6`, `count=320`, `dir=right`.
+
+| Group | Key | What the light does |
+|---|---|---|
+| Colours | `1` `2` | emerald / violet idle, 6 s fades |
+| | `7` `8` `3` `4` | a bloom in stages: bud green, soft pink, magenta, gold |
+| | `5` `6` | teal / blue |
+| | `G` / `K` | whole field warm (the Part 1 approach) / resting dim violet-blue |
+| | `0` | black |
+| Gestures | `Space` | tap: flowers near the point burst into petals; the petals drift and tumble across the wall, bounce off each other, and after 12 s fly home and the same flowers recompose. The rest of the field ripples |
+| | `←` `↑` `→` `↓` | swipe: same, then a hand sweeps through in that direction |
+| | `Enter` | flick: flowers along a line from the point burst, petals fly downwind |
+| | `D` / `H` | drag / hold: flowers move or gather, nothing dies |
+| | `A` | approach: flowers near the point drift toward it, twinkle for 4 s and warm; `Shift+A` at the second point |
+| | `L` | leave: both approaches relax home and cool over 2 s |
+| | `Shift` + gesture | at the second point |
+| Seasons | `S` | next season: cherry → summer → autumn; base colour fades over 5 s, new flowers take the new palette |
+| Field | `T` | age the field 40 s (shows the life cycle on camera) |
+| | `R` | reset every slot to full bloom |
+| | `Z` | pause / resume natural aging (touch still kills, patches still regrow) |
+| Sound | `M` / `N` | ambient pad on / off |
+| | `B` | sound source: Web Audio synth ↔ files in `static/sounds/` |
+| Exposure | `[` / `]` | darker / brighter, 0.6 to 2.0 |
+| Solo | `P` / `Esc` | run / cancel the scripted take |
+
+Every tap, swipe and flick plays a note from a pentatonic scale in the pad's key, chosen by the touch point's position across the wall: low on the left, high on the right. Notes ring for about 2 s, so gestures a moment apart, or two people at two points, sound as a chord. Two people touching in different places send two clouds of petals into each other: the petals collide and bounce, then each cloud flies home to its own flowers. Flying petals that cross a living flower make it flare, and the flare hops to neighbouring flowers, weaker each hop (`wave=0.3` on the light URL sets how far it carries). The petal and centre drawings are SVG artwork from a Claude Design sheet, in `tinkerbelle/static/petals/` as `<species>-a/b/c.svg` and `<species>-centre.svg` (greyscale with alpha, petal pointing up, base at the bottom); the page rasterizes them once at load, crops each petal to its own bounds, and tints them per flower. `gen-petals.js` in that folder regenerates them. Sound files can replace the synth: put `ambient.mp3`, `tap.mp3`, `swipe.mp3` (ogg, wav or m4a also work) in `tinkerbelle/static/sounds/`, reload the light page, and press `B`.
+
+## Reflection
+
+*To be written.*
 
 ---
 
