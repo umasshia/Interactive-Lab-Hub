@@ -4,23 +4,32 @@
 // two beeps = "touch the wall now". The light change follows the beep by 1 second,
 // so the light appears to react to what you just did.
 //
-// Captions for the recording: [seconds from the start of the take, text]. Drawn onto the light
-// canvas while the take runs (P starts it, Esc stops it), so they end up in the recording. Each
-// shows for 5 s unless the next one comes sooner. &captions=off on the light URL disables them.
+// Captions for the recording: [seconds from the start of the take, text, hold seconds]. Drawn onto
+// the light canvas while the take runs (P starts it, Esc stops it), so they end up in the recording.
+// Each shows for 5 s (or its own hold) unless the next one comes sooner. &captions=off on the light
+// URL disables them. The season captions sit 8 s after the season keys: a 15 s sweep spends its first
+// 9 s staggering starts by distance, so that is when it is visibly turning.
 const CAPTIONS = [
   [0,   'Flower field, no one interacting'],
-  [20,  'Person approaches. Nearby flowers gather and twinkle'],
-  [28,  'Tap. Flowers break into petals'],
-  [34,  'Swipe. More petals scatter'],
-  [40,  'Person leaves'],
-  [50,  'Petals return to their flowers'],
-  [65,  'Flowers reassembled'],
-  [75,  'Two people approach'],
-  [83,  'Two touches. Petals collide in the middle'],
-  [95,  'Both leave'],
-  [105, 'Petals return'],
-  [125, 'Season change'],
-  [150, ''],
+  [15,  'Person approaches. Nearby flowers gather and twinkle'],
+  [22,  'Touch. Flowers turn to petals and spread out'],
+  [28,  'Person leaves'],
+  [38,  'Petals gather back'],
+  [50,  'Two people approach'],
+  [57,  'Two touches at the same time. Petals collide'],
+  [65,  'Both leave'],
+  [75,  'Petals bounce, then gather back'],
+  [90,  'Season change to summer', 8],
+  [100, 'Person approaches'],
+  [107, 'Swing across the field. Flowers on the path turn to petals'],
+  [113, 'Person leaves'],
+  [123, 'Petals gather back gradually'],
+  [135, 'Two people approach'],
+  [142, 'Two swings toward the centre. Petals collide'],
+  [150, 'Both leave'],
+  [160, 'Petals bounce, then gather back'],
+  [175, 'Season change to autumn', 8],
+  [200, ''],
 ];
 // The take. Each line is [milliseconds from start, action]. Actions:
 //   {key:'4'}                          a colour key        {sound:'ambient', on:true}   the pad
@@ -29,21 +38,30 @@ const CAPTIONS = [
 //   {leave:true}                       release both        {field:{...}}                a field op (reset, season ...)
 //   {end:true}                         the end (stops a recording)
 // Wall coordinates are percent across and down. Timing matches CAPTIONS above.
+// Both storyboards: touches first, then swings, 3:20. Two taps at 25 and 75 (or two swings from
+// 20 and 80 toward each other) send their clouds into the middle, where they collide.
 const SOLO_SCRIPT = [
   [0,      { field: { op: 'reset' } }],                       // cherry season, full bloom, the field alone
   [0,      { sound: 'ambient', on: true }],
-  [20000,  { approach: 0, x: 30, y: 50 }],
-  [28000,  { hand: 'tap', x: 30, y: 50 }],
-  [34000,  { hand: 'swipe', x: 30, y: 50, dir: 'right' }],
-  [40000,  { leave: true }],
-                                                              // 1:05 petals are back (gather 12 s: the last leaves by ~53 s and lands by ~60 s)
-  [75000,  { approach: 0, x: 25, y: 50 }],
-  [75000,  { approach: 1, x: 75, y: 50 }],
-  [83000,  { hand: 'tap', x: 25, y: 50 }],
-  [83500,  { poke: true, x: 75, y: 50, dir: 'left' }],
-  [95000,  { leave: true }],
-  [125000, { season: 1 }],                                     // summer
-  [150000, { end: true }],
+  [15000,  { approach: 0, x: 30, y: 50 }],
+  [22000,  { hand: 'tap', x: 30, y: 50 }],                     // chord; petals scatter
+  [28000,  { leave: true }],                                   // petals gather back by ~50 s (gather 12 s)
+  [50000,  { approach: 0, x: 25, y: 50 }],
+  [50000,  { approach: 1, x: 75, y: 50 }],
+  [57000,  { hand: 'tap', x: 25, y: 50 }],                     // two chords; the clouds meet in the centre
+  [57000,  { hand: 'tap', x: 75, y: 50 }],
+  [65000,  { leave: true }],
+  [82000,  { season: 1 }],                                     // summer; caption at 1:30, 8 s later, when the sweep shows
+  [100000, { approach: 0, x: 25, y: 50 }],
+  [107000, { hand: 'swipe', x: 25, y: 50, dir: 'right' }],    // a long swing, 40% of the wall; chord
+  [113000, { leave: true }],
+  [135000, { approach: 0, x: 20, y: 50 }],
+  [135000, { approach: 1, x: 80, y: 50 }],
+  [142000, { hand: 'swipe', x: 20, y: 50, dir: 'right' }],    // two swings toward the centre; two chords
+  [142000, { hand: 'swipe', x: 80, y: 50, dir: 'left' }],
+  [150000, { leave: true }],
+  [167000, { season: 2 }],                                     // autumn; caption at 2:55
+  [200000, { end: true }],                                     // 3:20; in record mode this stops the recorder
 ];
 
 // run one action here and on every other page

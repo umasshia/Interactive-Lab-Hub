@@ -7,7 +7,7 @@ const control = document.getElementById('control');
 // With no ?mode the page stays a plain flat colour (original behaviour).
 //
 // blobs options (all in the URL):
-//   fade=<s>      how long a colour key's change takes (default 12); seasonfade=<s> for a season change (default 20).
+//   fade=<s>      how long a colour key's change takes (default 12); seasonfade=<s> for a season change (default 15).
 //                 A change sweeps across the field from a random point: each flower starts at an offset
 //                 by distance, spread over 60% of the time, and runs its own eased fade in the remaining 40%
 //   dir=<right|left|up|down|angle-in-degrees>   direction of a swipe/flick (default right)
@@ -15,12 +15,12 @@ const control = document.getElementById('control');
 //   cover=<0..1>  fraction of the wall the drifts cover (default 0.85); the rest is thin dark channels,
 //                 with a sparse floor of tiny dim flowers everywhere so no region is pure black
 //   season=<0|1|2|name>   starting palette (see SEASONS); the wizard's S key cycles them
-//   palette tunables (override the season's defaults, so they can be set on the projector):
-//     band=<deg>     hue band around the base most flowers stay in (default 70)
-//     wide=<deg>     band for the one-in-ten outliers (default 110; never complementary)
-//     sat=<lo,hi>    chroma range of the mid class as a fraction of full (default 0.6,0.9)
-//     full=<frac>    share of fully saturated flowers (default 0.25)
-//     pale=<frac>    share of pale flowers: light with a clear tint (default 0.15)
+//   palette tunables (override every season's defaults, so they can be set on the projector):
+//     band=<deg>     hue band around the base most flowers stay in (per season, 15-25)
+//     outlier=<frac> share of flowers that take one of the season's outlier hues instead (0.2-0.4)
+//     sat=<lo,hi>    chroma range of the mid class as a fraction of full (default 0.65,0.9)
+//     full=<frac>    share of fully saturated flowers (per season, 0.25-0.3)
+//     pale=<frac>    share of pale flowers: light with a clear tint (per season, 0.08-0.2)
 //   seed=<n>      change the layout
 //   tone=<hex>    starting colour before the wizard sends anything (default: the season's base colour)
 //   gather=<s>    centre of the window in which a touched flower's petals start flying home: each petal
@@ -30,7 +30,7 @@ const control = document.getElementById('control');
 //   record=1      record mode: every bit of UI hidden, cursor off; one click, a 3 s countdown, then the
 //                 take in solo.js runs while the canvas (60 fps) and the audio master are captured to
 //                 storyboard-demo.webm, downloaded when the take ends. end=<s> cuts the take short
-//   exposure=<x>  starting brightness multiplier, 0.6..2.0 (default 1.6); the wizard's [ and ] step it
+//   exposure=<x>  starting brightness multiplier, 0.6..2.0 (default 1.8); the wizard's [ and ] step it
 //   wave=<0..1>   how far a flare travels when a flying petal hits a flower (default 0.3)
 //
 // All motion integrates real elapsed time (dt, capped at 50 ms so a stall never teleports anything);
@@ -54,13 +54,13 @@ const params = new URLSearchParams(window.location.search);
 //   grad=paletip|darkbase    base-to-tip gradient: pale base and colour at the tip / darker base, lightest mid
 //   vein=<0..1> central vein and a little noise inside the petal
 //   halo=<0..1> strength of the per-flower halo (drawn in either blend)
-//   band=<deg>  hue band (wide= the outliers' band)      fog=<0..1> background patch strength
+//   fog=<0..1> background patch strength
 //   fogsize=<x> background patch radius multiplier (they also get softer when > 1)
 //   centre=lit|matte   lit: the glowing centres. matte: textured, no glow; darker than the petals for
 //                      cherry, a yellow-brown dotted disc for daisy, near nothing for chrysanthemum
 const LOOKS = {
-  lights: { blend: 'additive', edge: 2, pool: 0,   grad: 'paletip',  vein: 0,   halo: 0,   band: 70, wide: 110, fog: 0,   fogsize: 1,   centre: 'lit' },
-  paper:  { blend: 'layered',  edge: 2, pool: 0.3, grad: 'darkbase', vein: 0.5, halo: 0.5, band: 45, wide: 70,  fog: 0,   fogsize: 1.5, centre: 'matte' },
+  lights: { blend: 'additive', edge: 2, pool: 0,   grad: 'paletip',  vein: 0,   halo: 0,   fog: 0,   fogsize: 1,   centre: 'lit' },
+  paper:  { blend: 'layered',  edge: 2, pool: 0.3, grad: 'darkbase', vein: 0.5, halo: 0.5, fog: 0,   fogsize: 1.5, centre: 'matte' },
 };
 const LOOK = { ...(LOOKS[params.get('look')] || LOOKS.lights) };
 for (const k of Object.keys(LOOK)) {
@@ -192,7 +192,9 @@ function colorAt(msAgo) {
 // decays back home, so after any gesture the field slowly returns to how it was.
 //   tap    (Space)      kills the flowers within KILL.tap of the touch point (they burst into
 //                       petals); a ripple then startles the ones further out
-//   swipe  (arrow keys) kills within KILL.swipe, then a hand sweeps through and parts the rest
+//   swipe  (arrow keys) a swing: the hand travels SWIPE_LEN ahead of the touch point in about a second,
+//                       flowers in a band 2 x KILL.swipe wide burst as it passes (petals thrown
+//                       along the swing) and it parts the rest
 //   drag   (D)          a slow hand moves through; flowers near it are carried along, then released
 //   hold   (H)          a hand rests on the wall; flowers gather in toward it, then drift back
 //   flick  (Enter)      kills the flowers along a line from the touch point in the swipe direction;
@@ -210,7 +212,7 @@ const hands = [];   // {t0, kind, from:[x,y], to:[x,y], ms, radius, force, mode}
 //   kick   = one-off velocity in %/s given when the tap's ripple front passes a flower
 const GESTURES = {
   tap:   { ms: 700,  radius: 22, kick: 34,   mode: 'ripple',  travel: 0 },
-  swipe: { ms: 900,  radius: 14, force: 180, mode: 'repel',   travel: 70 },
+  swipe: { ms: 1100, radius: 14, force: 180, mode: 'repel',   travel: 40, ahead: true },   // ahead: the path starts at the point (a swing), not centred on it
   drag:  { ms: 2600, radius: 12, force: 110, mode: 'carry',   travel: 55 },
   hold:  { ms: 3000, radius: 22, rate: 1.6,  mode: 'bloom',   travel: 0 },   // rate = how fast the bloom builds, per second
 };
@@ -221,10 +223,11 @@ function triggerHand(kind, opts) {
   const x = (opts && opts.x) ?? handPoint[0], y = (opts && opts.y) ?? handPoint[1];
   const vec = dirVector((opts && opts.dir) || defaultDir);
   playSfx(kind, x);
-  if (KILL[kind]) killAround(x, y, KILL[kind]);
-  const half = g.travel / 2;
+  if (kind === 'swipe') killAlong(x, y, vec, SWIPE_LEN, KILL.swipe, g.ms);
+  else if (KILL[kind]) killAround(x, y, KILL[kind]);
+  const half = g.ahead ? 0 : g.travel / 2, len = g.ahead ? g.travel : g.travel / 2;
   hands.push({ t0: performance.now(), kind, ...g, hit: new Set(),
-    from: [x - vec[0] * half, y - vec[1] * half], to: [x + vec[0] * half, y + vec[1] * half], vec });
+    from: [x - vec[0] * half, y - vec[1] * half], to: [x + vec[0] * len, y + vec[1] * len], vec });
 }
 // where a hand is, 0..1 along its path, eased so it starts and stops gently
 function handPos(h, now) {
@@ -261,9 +264,10 @@ const birth = blobSpots.map(() => 0);      // fieldTime at which this flower bud
 const deadAt = blobSpots.map(() => null);  // real time it went, or null while alive
 const sizeMul = blobSpots.map(() => 1);
 let fieldTime = 0, agingPaused = false;
-// ---- captions during a scripted take: one short line, bottom centre, thin sans-serif at 2% of the
-// wall height, off-white at 70%, no box, half a second in and out. Drawn on the canvas so the
-// recording has them. The lines live in CAPTIONS at the top of solo.js.
+// ---- captions during a scripted take, styled like film subtitles: one short line, bottom centre
+// 5% up from the edge, pale yellow Helvetica/Arial medium italic at 3% of the wall height, a 1 px
+// black outline and a soft black drop shadow so it reads on any background; half a second in and
+// out. Drawn on the canvas so the recording has them. The lines live in CAPTIONS at the top of solo.js.
 let recordStart = null;
 const captionsOn = params.get('captions') !== 'off';
 const recordMode = params.get('record') === '1' && lightMode === 'blobs';
@@ -283,9 +287,14 @@ function masterOut(c) {
   if (recordMode) { recordDest = c.createMediaStreamDestination(); masterNode.connect(recordDest); }
   return masterNode;
 }
-function beginTake() {
+async function beginTake() {
   getAudioCtx();                                                  // unlocked by this click
   if (document.fullscreenEnabled) document.documentElement.requestFullscreen().catch(() => {});
+  if (soundSource === 'file' && ambientDecode && !ambientBuf && !ambientFail) {   // the pad must be ready before the take starts
+    console.log('take: waiting for the ambient file to decode');
+    await Promise.race([ambientDecode, new Promise((r) => setTimeout(r, 15000))]);
+    if (!ambientBuf) console.warn('take: ambient file not ready after 15 s; the take runs without a pad');
+  }
   countdownEnd = performance.now() + 3000;
   setTimeout(startRecording, 3000);
 }
@@ -325,20 +334,26 @@ function drawCountdown(now) {
   ctx.restore();
 }
 const CAPTION_HOLD = 5, CAPTION_FADE = 0.5;
+const CAPTION_SIZE = 0.03, CAPTION_UP = 0.05, CAPTION_COLOR = '#F5E27A';   // size and height above the edge as fractions of wall height
 function drawCaptions(now) {
   if (recordStart === null || !captionsOn || typeof CAPTIONS === 'undefined') return;
   const t = (now - recordStart) / 1000;
   for (let k = 0; k < CAPTIONS.length; k++) {
-    const [at, text] = CAPTIONS[k]; if (!text || t < at) continue;
-    const end = Math.min(at + CAPTION_HOLD, k + 1 < CAPTIONS.length ? CAPTIONS[k + 1][0] : Infinity);
+    const [at, text, hold] = CAPTIONS[k]; if (!text || t < at) continue;
+    const end = Math.min(at + (hold || CAPTION_HOLD), k + 1 < CAPTIONS.length ? CAPTIONS[k + 1][0] : Infinity);
     if (t >= end) continue;
     const a = Math.min(1, (t - at) / CAPTION_FADE, (end - t) / CAPTION_FADE);
     ctx.save();
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.globalCompositeOperation = 'source-over';
-    ctx.font = `300 ${Math.round(H * 0.02)}px "Helvetica Neue", Helvetica, Arial, system-ui, sans-serif`;
+    const px = Math.round(H * CAPTION_SIZE), x = W / 2, y = H - H * CAPTION_UP;
+    ctx.font = `italic 500 ${px}px Helvetica, "Helvetica Neue", Arial, sans-serif`;
     ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
-    ctx.globalAlpha = 0.7 * a; ctx.fillStyle = '#f2ede4';
-    ctx.fillText(text, W / 2, H - H * 0.045);
+    ctx.globalAlpha = a;
+    ctx.shadowColor = 'rgba(0,0,0,0.8)'; ctx.shadowBlur = px * 0.25; ctx.shadowOffsetX = 0; ctx.shadowOffsetY = px * 0.06;   // the soft drop shadow
+    ctx.lineJoin = 'round'; ctx.lineWidth = 2; ctx.strokeStyle = '#000';   // 2 px centred on the glyph edge = 1 px showing outside it
+    ctx.strokeText(text, x, y);
+    ctx.shadowColor = 'transparent';                                        // the fill sits clean on top of the outline
+    ctx.fillStyle = CAPTION_COLOR; ctx.fillText(text, x, y);
     ctx.restore();
     break;
   }
@@ -348,7 +363,7 @@ const FF_MS = 3000;
 const resetAt = blobSpots.map(() => -1e9), resetFrom = blobSpots.map(() => null);   // R: each flower eases from its old look
 const RESET_MS = 2000;
 // exposure: a global brightness multiplier on flower alpha, glow alpha and lightness, stepped by the wizard
-let exposure = Math.min(2, Math.max(0.6, Number(params.get('exposure') || 1.6)));
+let exposure = Math.min(2, Math.max(0.6, Number(params.get('exposure') || 1.8)));
 function setExposure(v) { exposure = Math.round(Math.min(2, Math.max(0.6, v)) * 10) / 10; }
 
 // how old a flower is and what that looks like: [scale, alpha, wither 0..1, blur px]
@@ -401,7 +416,7 @@ function fieldOp(op) {
   if (op.op === 'advance') { ffLeft += op.ms; ffTotal = ffLeft; }
   else if (op.op === 'reset') resetField(true);
   else if (op.op === 'pause') agingPaused = !!op.on;
-  else if (op.op === 'season') { seasonOp(op.k); if (op.base) fadeTone(op.base, seasonFadeMs); }
+  else if (op.op === 'season') { seasonOp(op.k); if (op.base) fadeTone(op.base, seasonFadeMs, null, true); }   // every flower re-rolls into the new palette as the sweep reaches it
   else if (op.op === 'fade') fadeTone(op.hex, fadeMs, op.easing);   // the light sets the pace, not the key
   else if (op.op === 'exposure') setExposure(op.v);
 }
@@ -418,10 +433,10 @@ function hclFade(a, b) {
   if (isNaN(A.h)) A.h = isNaN(B.h) ? 0 : B.h; if (isNaN(B.h)) B.h = A.h;
   return d3.interpolateHcl(A, B);
 }
-const fadeMs = Number(params.get('fade') || 12) * 1000, seasonFadeMs = Number(params.get('seasonfade') || 20) * 1000;
-function fadeTone(hex, ms, easing) {
+const fadeMs = Number(params.get('fade') || 12) * 1000, seasonFadeMs = Number(params.get('seasonfade') || 15) * 1000;
+function fadeTone(hex, ms, easing, reroll) {
   if (!lightMode) return;                                            // a wizard page shows nothing
-  if (lightMode === 'blobs') { startSweep(hex, ms || fadeMs); return; }
+  if (lightMode === 'blobs') { startSweep(hex, ms || fadeMs, reroll); return; }
   const from = current || '#000';                                    // plain lights: one fade for the whole page
   toneFade = { f: hclFade(from, hex), t0: performance.now(), ms: Number(ms) || fadeMs, ease: eases[easing] || d3.easeSinInOut };
   requestAnimationFrame(plainFade);
@@ -429,17 +444,22 @@ function fadeTone(hex, ms, easing) {
 // ---- the sweep. Every flower carries its own tone (HCL, numeric). A colour change picks a random
 // origin on the wall; each flower starts after a delay proportional to its distance from it, spread
 // over SWEEP_SPREAD of the fade, and then runs its own slow-in slow-out fade in the rest. A new
-// change during a sweep starts from wherever each flower is at that moment.
+// change during a sweep starts from wherever each flower is at that moment. A season sweep also
+// carries each flower's palette roll (hue offset, saturation class, shade) from the old season's to
+// a fresh roll from the new one, so the new palette shows as the sweep passes rather than only as
+// flowers die and re-bud over the next few minutes.
 const SWEEP_SPREAD = 0.6;
 const toneH = new Float32Array(blobSpots.length), toneC = new Float32Array(blobSpots.length), toneL = new Float32Array(blobSpots.length);
-let sweep = null;   // {t0, ms, origin, maxDist, h, c, l, fromH, fromC, fromL}
-function startSweep(hex, ms) {
+let sweep = null;   // {t0, ms, origin, maxDist, h, c, l, fromH, fromC, fromL, roll?: {from, to} palette rolls}
+function startSweep(hex, ms, reroll) {
   const to = d3.hcl(hex), now = performance.now();
   const origin = [rand() * 100, rand() * 100];
   const maxDist = Math.max(...[[0, 0], [100, 0], [0, 100], [100, 100]].map(([x, y]) => Math.hypot(x - origin[0], y - origin[1])));
   if (sweep) stepSweep(now);                                           // settle each flower where it is right now
   sweep = { t0: now, ms: Number(ms) || fadeMs, origin, maxDist, h: to.h, c: isNaN(to.c) ? 0 : to.c, l: to.l,
-            fromH: Float32Array.from(toneH), fromC: Float32Array.from(toneC), fromL: Float32Array.from(toneL) };
+            fromH: Float32Array.from(toneH), fromC: Float32Array.from(toneC), fromL: Float32Array.from(toneL), roll: null };
+  if (reroll) sweep.roll = { from: { off: Float32Array.from(hueOff), sat: Float32Array.from(satMul), pale: Float32Array.from(pale), shade: Float32Array.from(shade) },
+                             to: blobSpots.map((_, i) => rollPaletteFor(SEASONS[season], i)) };
 }
 function stepSweep(now) {
   if (!sweep) return;
@@ -453,6 +473,11 @@ function stepSweep(now) {
     const toH = isNaN(sw.h) ? sw.fromH[i] : sw.h;                              // to black or grey: keep the hue
     let dh = toH - sw.fromH[i]; dh -= Math.round(dh / 360) * 360;              // the short way round the wheel
     toneH[i] = sw.fromH[i] + dh * e; toneC[i] = sw.fromC[i] + (sw.c - sw.fromC[i]) * e; toneL[i] = sw.fromL[i] + (sw.l - sw.fromL[i]) * e;
+    if (sw.roll) {   // the palette roll rides the same fade (offsets are plain numbers, not angles: no wrap)
+      const f = sw.roll.from, t = sw.roll.to[i];
+      hueOff[i] = f.off[i] + (t.off - f.off[i]) * e; satMul[i] = f.sat[i] + (t.sat - f.sat[i]) * e;
+      pale[i] = f.pale[i] + (t.pale - f.pale[i]) * e; shade[i] = f.shade[i] + (t.shade - f.shade[i]) * e;
+    }
   }
   if (allDone) sweep = null;
 }
@@ -472,8 +497,17 @@ function plainFade(now) {
 
 // ---- death by touch. A killed flower breaks into petals of its own colour and is gone at once;
 // its slot takes the normal regrowth delay, so a touched area stays dark for a while, then buds.
-const KILL = { tap: 11, swipe: 11, flick: 5 };   // radius (tap/swipe) or half-width of the line (flick), % of screen
-const FLICK_LEN = 45;                          // how far along the swipe direction a flick reaches, %
+// Sizes are in % of the wall WIDTH on both axes (wallDist), so a hole is round on screen, and they
+// scale with the flower count so a gesture always frees about the same number of petals: at 1400
+// a tap clears a hole 11% of the wall wide, a flick a line 12% long, a swipe (a swing) a feathered
+// band 6% wide along the hand's 40% path (the odds of a kill fall to nothing at the band's edge), so
+// each frees 300-400 petals (a flower has 5-32); fewer flowers, bigger gestures. The swing's length
+// does not scale: it is the arm's reach, and two swings from 20 and 80 have to meet in the middle.
+const KILL_SCALE = Math.sqrt(1400 / blobCount);
+const KILL = { tap: 5.5 * KILL_SCALE, swipe: 3 * KILL_SCALE, flick: 2.5 * KILL_SCALE };   // radius (tap), half-width of the band (swipe) or line (flick)
+const FLICK_LEN = 12 * KILL_SCALE;             // how far along the swipe direction a flick reaches
+const SWIPE_LEN = 40;                          // how far the swing's hand travels from the touch point, % of width
+const wallDist = (dx, dy) => Math.hypot(dx, dy * H / W);   // dx, dy in % of width / height -> distance in % of width
 const pendingKills = [];   // {i, at, vec}: deaths staggered by a few hundred ms so a patch/line dies as a sweep
 const petals = [];         // {sprite, x, y, len, w, vx, vy, born, life, ang, spin, sway, hits}  world px
 
@@ -529,6 +563,8 @@ function stepFlares(now, dt) {
   }
 }
 const PETAL_COAST = 1.2;   // s: the burst spreads, then the petal is just drifting
+const TAP_PULL = 6;        // %/s of the long edge added toward the wall centre for tap petals: a burst travels ~1.2 x its
+                           // speed, so with this two taps at 25 and 75 overlap in the middle (without it their fronts only touch)
 const PETAL_FALL = 1.0;    // %/s: settling speed of a drifting petal
 const PETAL_BOUNCE = 0.6;  // restitution when two clouds meet
 const PETAL_RADIUS = 0.25; // contact distance as a fraction of the two petals' combined length
@@ -544,8 +580,23 @@ function killAround(x, y, r) {
   const now = performance.now(), gesture = ++gestureSeq;
   blobSpots.forEach(([bx, by], i) => {
     if (isGlow[i] || deadAt[i] !== null) return;
-    const d = Math.hypot(bx + offX[i] - x, by + offY[i] - y);
+    const d = wallDist(bx + offX[i] - x, by + offY[i] - y);
     if (d < r) pendingKills.push({ i, at: now + d / r * 160, vec: null, gesture });
+  });
+}
+// a swing: the band from the touch point SWIPE_LEN ahead along vec, KILL.swipe to either side with
+// round ends; feathered, so the stroke has a soft edge rather than a cut one. Flowers die as the
+// hand reaches them (over `ms`, the hand's travel time) and throw their petals along the swing.
+function killAlong(x, y, vec, len, half, ms) {
+  const now = performance.now(), gesture = ++gestureSeq;
+  blobSpots.forEach(([bx, by], i) => {
+    if (isGlow[i] || deadAt[i] !== null) return;
+    const px = bx + offX[i] - x, py = (by + offY[i] - y) * H / W;
+    const along = px * vec[0] + py * vec[1], side = Math.abs(px * vec[1] - py * vec[0]);
+    const over = along < 0 ? -along : along > len ? along - len : 0;        // outside the band's length: round caps
+    const d = Math.hypot(over, side) / half;
+    if (d > 1 || rand() < d) return;                                          // the odds of a kill fall linearly to the edge
+    pendingKills.push({ i, at: now + Math.max(0, along) / len * ms, vec, gesture, swing: true });
   });
 }
 function triggerPoke(opts) {
@@ -556,7 +607,7 @@ function triggerPoke(opts) {
   playSfx('flick', x);
   blobSpots.forEach(([bx, by], i) => {
     if (isGlow[i] || deadAt[i] !== null) return;
-    const px = bx + offX[i] - x, py = by + offY[i] - y;
+    const px = bx + offX[i] - x, py = (by + offY[i] - y) * H / W;   // in % of width on both axes
     const along = px * vec[0] + py * vec[1];             // distance along the flick line
     const side = Math.abs(px * vec[1] - py * vec[0]);    // distance off the line
     if (along < -KILL.flick || along > FLICK_LEN || side > KILL.flick) return;
@@ -567,9 +618,10 @@ function wanderAt(i, now) {
   const [px, py, amp] = wander[i];
   return [amp * Math.sin(now / px * 2 * Math.PI + phase[i]), amp * Math.cos(now / py * 2 * Math.PI + phase[i])];
 }
-function die(i, vec, now, gesture) {
+function die(i, vec, now, gesture, swing) {
   // The flower's own petals detach: each keeps its on-screen position, angle, size and colour,
-  // and gets a velocity. Tap/swipe: outward from the flower centre. Flick: all downwind, slight fan.
+  // and gets a velocity. Tap: outward from the flower centre. Flick: all downwind, slight fan.
+  // Swing: downwind in a wide fan, a little faster than a tap, so two swings' clouds cross.
   const f = drawSize[i] / S, [sx, sy] = squash[i], sway = drawSway[i];
   const cs = Math.cos(sway), sn = Math.sin(sway);
   const toWorld = (px, py) => { const X = px * sx, Y = py * sy; return [drawX[i] + f * (X * cs - Y * sn), drawY[i] + f * (X * sn + Y * cs)]; };
@@ -585,10 +637,13 @@ function die(i, vec, now, gesture) {
     const dx = tx - bx, dy = ty - by, len = Math.hypot(dx, dy);
     const x = (bx + tx) / 2, y = (by + ty) / 2;
     let ang, speed;
-    if (vec) { ang = Math.atan2(vec[1], vec[0]) + (rand() - 0.5) * 0.7; speed = (12 + rand() * 12) * long / 100; }   // flick: all downwind, a bit faster
-    else     { ang = Math.atan2(y - drawY[i], x - drawX[i]) + (rand() - 0.5) * 1.0; speed = (7 + rand() * 9) * long / 100; }   // tap/swipe: outward
+    if (swing)    { ang = Math.atan2(vec[1], vec[0]) + (rand() - 0.5) * 1.4; speed = (9 + rand() * 11) * long / 100; }   // swing: thrown along it, wide fan
+    else if (vec) { ang = Math.atan2(vec[1], vec[0]) + (rand() - 0.5) * 0.7; speed = (12 + rand() * 12) * long / 100; }   // flick: all downwind, a bit faster
+    else          { ang = Math.atan2(y - drawY[i], x - drawX[i]) + (rand() - 0.5) * 1.0; speed = (7 + rand() * 9) * long / 100; }   // tap: outward
+    let vx = Math.cos(ang) * speed, vy = Math.sin(ang) * speed;
+    if (!vec) { const cx = W / 2 - x, cy = H / 2 - y, d = Math.hypot(cx, cy) || 1; vx += cx / d * TAP_PULL * long / 100; vy += cy / d * TAP_PULL * long / 100; }   // tap: lean toward the centre
     petals.push({ sprite, x, y, len, w: ph * a.aspect * p.w * f * (sx + sy) / 2, bf: a.baseFrac,
-      ang: Math.atan2(dx, -dy), vx: Math.cos(ang) * speed, vy: Math.sin(ang) * speed,
+      ang: Math.atan2(dx, -dy), vx, vy,
       born: now, spin: (rand() - 0.5) * (vec ? 0.7 : 1.0), sway: rand() * 6.28, hits: new Set([i]), flash: -1e9,
       id: ++petalSeq, gesture, settled: false, contacts: new Map(),   // contacts: other petal id -> last time resolved (flash once per pair)
       home: i, petal: p, leaveAt: now + gatherMs * (0.6 + rand()), retMs: RETURN_MIN_MS + rand() * (RETURN_MAX_MS - RETURN_MIN_MS), ret: null });
@@ -623,10 +678,11 @@ function petalLanded(i, now) {
 }
 
 // ---- approach (A / Shift+A): someone walks up to a spot on the wall. Flowers within APPROACH.radius
-// drift a few percent toward the point over 2 s, twinkle for about 4 s, and warm toward rose - only
-// those flowers, not the field. L releases both points: they relax home and cool over 2 s.
+// (% of the wall width, round on screen, scaled with the count like the kills) drift a few percent
+// toward the point over 2 s, twinkle for about 4 s, and warm toward rose - only those flowers, not
+// the field. L releases both points: they relax home and cool over 2 s.
 // The old whole-field warm shift is on G, the resting colour on K.
-const APPROACH = { radius: 20, drift: 3.5, driftMs: 2000, twinkleMs: 4000, releaseMs: 2000, warm: '#d4577f' };
+const APPROACH = { radius: 20 * KILL_SCALE, drift: 3.5, driftMs: 2000, twinkleMs: 4000, releaseMs: 2000, warm: '#d4577f' };
 const approaches = [null, null];   // per point slot: {x, y, t0, released}
 const apX = blobSpots.map(() => 0), apY = blobSpots.map(() => 0);   // approach displacement, % of screen
 const apWarm = blobSpots.map(() => 0), apTwinkle = blobSpots.map(() => 0);
@@ -657,10 +713,10 @@ function stepApproaches(now) {
     for (let i = 0; i < blobSpots.length; i++) {
       if (isGlow[i] || deadAt[i] !== null) continue;
       const [bx, by] = blobSpots[i];
-      const ddx = a.x - bx, ddy = a.y - by, d = Math.hypot(ddx, ddy);
+      const ddx = a.x - bx, ddy = (a.y - by) * H / W, d = Math.hypot(ddx, ddy);   // % of width on both axes
       if (d >= APPROACH.radius || d < 0.01) continue;
       const fall = 1 - d / APPROACH.radius;
-      apX[i] += ddx / d * APPROACH.drift * fall * env; apY[i] += ddy / d * APPROACH.drift * fall * env;
+      apX[i] += ddx / d * APPROACH.drift * fall * env; apY[i] += ddy / d * APPROACH.drift * fall * env * W / H;   // the same drift on screen either way
       apWarm[i] = Math.min(1, apWarm[i] + fall * env);
       if (tw) apTwinkle[i] = Math.max(apTwinkle[i], tw * fall * (0.5 + 0.5 * Math.sin(now / 55 + phase[i] * 9)));   // fast, staggered
     }
@@ -673,23 +729,32 @@ const rotation = blobSpots.map(() => rand() * 360);
 const wander = blobSpots.map(() => [9000 + rand() * 12000, 11000 + rand() * 14000, 1.5 + rand() * 2.5]); // [period x, period y, amplitude %]
 const heartYellow = blobSpots.map(() => rand() < 0.7);   // star centres only
 // ---- palette. The wizard's colour keys set the base tone; a season sets how flowers vary around it.
-// Each flower rolls, at birth: a hue offset inside the season's band (one in ten may wander to the
-// wide band; nothing goes complementary), and a saturation class - pale (near white with a tint),
-// mid (most flowers), or full (a few). Existing flowers keep their roll when the season changes;
-// new ones roll from the new season, so the field turns over into the new palette.
+// Each flower rolls, at birth: a hue - most stay inside the season's narrow band around the base
+// (the clump's lean), an `outlier` share take one of the season's named outlier hues (an offset from
+// the base, so they follow the wizard's colour keys too; optional chroma and shade of their own) -
+// and a saturation class: pale (near white with a tint), mid (most flowers), or full (a few).
+// A season change re-rolls every flower as the sweep reaches it (see startSweep); a new flower
+// rolls from the current season. Hues are HCL degrees: pink 0, crimson 30, orange 55, gold 75,
+// leaf green 130, purple 320, magenta 330. Bands are narrow: past +-20 pink turns mauve and green olive.
+// An outlier's `sat` is its chroma as a fraction of full, `shade` scales its lightness, `pale` lifts it.
 const SEASONS = [
-  { name: 'cherry', base: '#f58ec4', band: 70, wide: 110, pale: 0.15, full: 0.25, sat: [0.6, 0.9], mix: { cherry: 0.60, daisy: 0.15, mum: 0.15, star: 0.10 } },
-  { name: 'summer', base: '#5b6cff', band: 70, wide: 110, pale: 0.15, full: 0.25, sat: [0.6, 0.9], mix: { cherry: 0.15, daisy: 0.55, mum: 0.20, star: 0.10 } },
-  { name: 'autumn', base: '#e08a1e', band: 70, wide: 110, pale: 0.15, full: 0.25, sat: [0.6, 0.9], mix: { cherry: 0.10, daisy: 0.20, mum: 0.60, star: 0.10 } },
+  { name: 'cherry', base: '#ff8aa6', band: 12, outlier: 0.2, pale: 0.25, full: 0.3, sat: [0.7, 0.95],   // pink, white, peach, a little magenta
+    outliers: [{ off: 48, w: 0.7, sat: 0.7, pale: 0.4 }, { off: -32, w: 0.3, sat: 1, shade: 0.8 }],
+    mix: { cherry: 0.60, daisy: 0.15, mum: 0.15, star: 0.10 } },
+  { name: 'summer', base: '#65c639', band: 15, outlier: 0.4, pale: 0.08, full: 0.4, sat: [0.8, 1],      // leaf green with bright pink, orange, some gold
+    outliers: [{ off: -125, w: 0.45, sat: 1, shade: 1.1 }, { off: -75, w: 0.35, sat: 1, shade: 1.1 }, { off: -52, w: 0.2, sat: 1, shade: 1.1 }],
+    mix: { cherry: 0.15, daisy: 0.55, mum: 0.20, star: 0.10 } },
+  { name: 'autumn', base: '#e19c09', band: 12, outlier: 0.4, pale: 0.06, full: 0.35, sat: [0.7, 0.95],  // gold, rust, crimson, some deep purple
+    outliers: [{ off: -28, w: 0.4, sat: 0.9, shade: 0.75 }, { off: -45, w: 0.4, sat: 1, shade: 0.65 }, { off: -115, w: 0.2, sat: 0.9, shade: 0.45 }],
+    mix: { cherry: 0.10, daisy: 0.20, mum: 0.60, star: 0.10 } },
 ];
 // URL overrides apply to every season
 {
   const num = (k) => params.get(k) !== null ? Number(params.get(k)) : null;
-  const band = params.get('band') !== null ? num('band') : LOOK.band, wide = params.get('wide') !== null ? num('wide') : LOOK.wide;
-  const full = num('full'), paleShare = num('pale');
+  const band = num('band'), outlier = num('outlier'), full = num('full'), paleShare = num('pale');
   const sat = params.get('sat') ? params.get('sat').split(',').map(Number) : null;
   for (const sn of SEASONS) {
-    if (band !== null) sn.band = band; if (wide !== null) sn.wide = wide;
+    if (band !== null) sn.band = band; if (outlier !== null) sn.outlier = outlier;
     if (full !== null) sn.full = full; if (paleShare !== null) sn.pale = paleShare;
     if (sat && sat.length === 2) sn.sat = sat;
   }
@@ -700,16 +765,20 @@ let season = Math.max(0, SEASONS.findIndex((x, k) => String(k) === params.get('s
   toneH.fill(isNaN(start.h) ? 0 : start.h); toneC.fill(isNaN(start.c) ? 0 : start.c); toneL.fill(start.l);
 }
 const hueOff = blobSpots.map(() => 0), satMul = blobSpots.map(() => 0.5), pale = blobSpots.map(() => 0);
+const shade = blobSpots.map(() => 1);   // lightness multiplier: < 1 for the deep outliers (rust, purple)
 const lightJitter = blobSpots.map(() => (rand() - 0.5) * 10);
-function rollPalette(i) {
-  const sn = SEASONS[season];
-  // offsets stay within +-band (outliers +-wide); 110 stops well short of the complement at 180
-  // the clump's lean, plus a little per-flower spread; one in ten still wanders out to the wide band
-  hueOff[i] = rand() < 0.1 ? (rand() * 2 - 1) * sn.wide : hueField(blobSpots[i][0], blobSpots[i][1]) * sn.band + (rand() - 0.5) * 12;
+function rollPaletteFor(sn, i) {   // one flower's roll from season sn: {off, sat, pale, shade}
+  let o = null;
+  if (rand() < sn.outlier) { let u = rand() * sn.outliers.reduce((a, b) => a + b.w, 0); o = sn.outliers.find((c) => (u -= c.w) < 0) || sn.outliers[sn.outliers.length - 1]; }
+  const off = o ? o.off + (rand() - 0.5) * 8 : hueField(blobSpots[i][0], blobSpots[i][1]) * sn.band + (rand() - 0.5) * 12;   // the clump's lean plus a little spread
   const u = rand();
-  if (u < sn.pale)            { satMul[i] = 0.35 + rand() * 0.15; pale[i] = 0.5 + rand() * 0.15; }   // pale: light, still clearly tinted
-  else if (u < sn.pale + sn.full) { satMul[i] = 1.0;                pale[i] = 0; }                    // full
-  else                        { satMul[i] = sn.sat[0] + rand() * (sn.sat[1] - sn.sat[0]); pale[i] = 0; }   // mid
+  if (!o && u < sn.pale)        return { off, sat: 0.35 + rand() * 0.15, pale: 0.5 + rand() * 0.15, shade: 1 };   // pale: light, still clearly tinted
+  const cls = u < sn.pale + sn.full ? 1.0 : sn.sat[0] + rand() * (sn.sat[1] - sn.sat[0]);              // full / mid
+  return { off, sat: o && o.sat !== undefined ? o.sat : cls, pale: o && o.pale !== undefined ? o.pale : 0, shade: o && o.shade !== undefined ? o.shade : 1 };   // outliers never roll pale; they may set it
+}
+function rollPalette(i) {
+  const r = rollPaletteFor(SEASONS[season], i);
+  hueOff[i] = r.off; satMul[i] = r.sat; pale[i] = r.pale; shade[i] = r.shade;
 }
 function seasonOp(k) {
   season = ((k % SEASONS.length) + SEASONS.length) % SEASONS.length;
@@ -789,10 +858,10 @@ function resetField(animated) {
   petals.length = 0;
   ffLeft = 0;
 }
-// Colours are quantized so flowers fall into shared tint buckets: hue in steps of about a twelfth
-// of the season band, chroma in steps of 15 (about the saturation classes), lightness in 4-5 steps.
+// Colours are quantized so flowers fall into shared tint buckets: hue in steps of 10 degrees,
+// chroma in steps of 25 (about the saturation classes), lightness in 4-5 steps.
 // The per-flower jitter still decides which bucket a flower lands in, so the field keeps its variety.
-const HUE_STEP = Math.max(5, Math.min(10, 2 * LOOK.band / 12)), CHROMA_STEP = 25, LIGHT_STEP = 20;   // ~12 hue steps across the band, 3 chroma classes, 4 lightness levels
+const HUE_STEP = 10, CHROMA_STEP = 25, CHROMA_FLOOR = 70, LIGHT_STEP = 20;   // 4-5 hue steps across a season band, 3 chroma classes, 4 lightness levels
 function quantize(c) {   // c: d3.hcl, mutated
   c.h = Math.round(c.h / HUE_STEP) * HUE_STEP;
   c.c = Math.round(c.c / CHROMA_STEP) * CHROMA_STEP;
@@ -814,8 +883,9 @@ function tintOf(i) {
   if (tl < 1.5) { if (qH[i] !== -1) { qH[i] = -1; tintStr[i] = '#000000'; } return tintStr[i]; }   // black stays black
   const dark = Math.min(1, tl / 20);                                                   // chroma dies out toward black
   let h = toneH[i] + hueOff[i];
-  const c = Math.max(toneC[i], 70) * satMul[i] * dark;                                // chroma from the class, not from the key's own vividness
-  let l = (tl + (92 - tl) * pale[i] + lightJitter[i]) * TIER[tierOf[i]].light;        // pale toward light; small tier dims
+  const c = Math.max(toneC[i], CHROMA_FLOOR) * satMul[i] * dark;                      // chroma from the class, not from the key's own vividness
+  const ts = tl * shade[i];                                                            // deep outliers sit below the base lightness
+  let l = (ts + (92 - ts) * pale[i] + lightJitter[i]) * TIER[tierOf[i]].light;        // pale toward light; small tier dims
   l = Math.min(92, l + (100 - l) * (exposure - 1) * 0.25);                            // exposure lifts lightness gently; never white
   const hq = Math.round(h / HUE_STEP), cq = Math.round(c / CHROMA_STEP), lq = Math.round(l / LIGHT_STEP);
   if (hq !== qH[i] || cq !== qC[i] || lq !== qL[i]) {
@@ -1221,7 +1291,7 @@ function renderBlobs() {
   for (let k = pendingKills.length - 1; k >= 0; k--) {
     const p = pendingKills[k]; if (p.at > now) continue;
     pendingKills.splice(k, 1);
-    if (deadAt[p.i] === null) die(p.i, p.vec, now, p.gesture);
+    if (deadAt[p.i] === null) die(p.i, p.vec, now, p.gesture, p.swing);
   }
   // hands accelerate the (living) flowers near them
   for (const h of hands) {
@@ -1498,9 +1568,13 @@ function playSound(soundLink, duration) {   // the original per-key sound (needs
 // ---- sound. Only light pages play, so a wizard window on the same laptop doesn't double it.
 // Two layers. Files: static/sounds/ambient.*, tap.*, swipe.* (mp3/ogg/wav/m4a); the server lists the
 // folder on every request to /sounds and the light page asks at load, so dropping a file in and
-// reloading is enough. Synth: if a file is missing (or the wizard forces synth with B) the sound is
-// made with Web Audio instead. Browsers refuse audio until the page has been clicked once: click
-// "Tinkerbelle" on the light page before the take.
+// reloading is enough. If an ambient file is listed the source defaults to 'file' and the file is
+// fetched and decoded at load into an AudioBuffer (a 97 s mp3 takes about a second), then played
+// through the audio master so a recording has it. File mode never falls back to the synth: if the
+// pad is asked for before the decode is done, or the decode failed, it stays silent and says so on
+// the console (and in the ?fps=1 overlay). Synth: no ambient file, or the wizard forces it with B.
+// Browsers refuse audio until the page has been clicked once: click "Tinkerbelle" on the light
+// page before the take.
 //   M / N   ambient on / off      B  synth <-> files      Space, arrows, Enter  a note with the gesture
 // Gestures play notes: a pentatonic scale in the key of the ambient pad (A), picked by the touch
 // point's x across the wall (left low, right high), with a ~2 s release so gestures a moment apart
@@ -1509,17 +1583,27 @@ const clamp01 = (v) => Math.min(1, Math.max(0, v));
 const sfxVol = clamp01(Number(params.get('sfx') ?? 0.35)), ambVol = clamp01(Number(params.get('amb') ?? 0.6));
 const reverbMix = clamp01(Number(params.get('reverb') ?? 0.5));   // wet share of the shared reverb
 let soundFiles = {};        // {ambient, tap, swipe} -> url, as found at page load
-let soundSource = 'synth';  // 'synth': notes and pad from Web Audio (default). 'file': use static/sounds/ files when present
-let ambientWanted = false, ambientFile = null, ambientSynth = null, actx = null;
-if (lightMode) fetch('sounds').then((r) => r.json()).then((j) => { soundFiles = j; }).catch(() => {});
+let soundSource = 'synth';  // 'file' once /sounds lists an ambient file; B flips it. 'synth': notes and pad from Web Audio
+let ambientWanted = false, ambientPlay = null, ambientSynth = null, actx = null;   // ambientPlay: {src, gain} of the playing file
+let ambientBuf = null, ambientDecode = null, ambientFail = null;   // the decoded pad, the pending decode, or why it failed
+if (lightMode) fetch('sounds').then((r) => r.json()).then((j) => { soundFiles = j; if (j.ambient) { soundSource = 'file'; loadAmbient(j.ambient); } }).catch(() => {});
 function getAudioCtx() {
   const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return null;
   actx = actx || new AC();
   if (actx.state === 'suspended') actx.resume();
   return actx;
 }
+// fetch and decode the pad at load. A context made before any click sits suspended but decodes fine.
+function loadAmbient(url) {
+  const c = getAudioCtx(); if (!c) { ambientFail = 'no Web Audio'; return; }
+  ambientDecode = fetch(url).then((r) => { if (!r.ok) throw new Error('HTTP ' + r.status + ' fetching ' + url); return r.arrayBuffer(); })
+    .then((b) => c.decodeAudioData(b))
+    .then((buf) => { ambientBuf = buf; console.log(`ambient file decoded: ${buf.duration.toFixed(1)} s, ${buf.numberOfChannels} ch, ${buf.sampleRate} Hz`); return buf; })
+    .catch((e) => { ambientFail = String(e); console.warn('ambient file failed; the pad stays silent in file mode (B for the synth):', e); });
+}
+const ambientState = () => ambientBuf ? 'decoded' : ambientFail ? 'FAILED' : soundFiles.ambient ? 'decoding' : 'none';
 const useFile = (name) => soundSource === 'file' && soundFiles[name];
-const soundLabel = () => `${soundSource}${Object.keys(soundFiles).length ? ' [' + Object.keys(soundFiles).join(',') + ']' : ' [no files]'}`;
+const soundLabel = () => `${soundSource}${Object.keys(soundFiles).length ? ' [' + Object.keys(soundFiles).join(',') + ']' : ' [no files]'} pad:${ambientState()}`;
 function playSfx(kind, x) {
   if (!lightMode) return;
   const file = kind === 'flick' ? 'swipe' : kind;            // in file mode a flick borrows the swipe sound
@@ -1601,9 +1685,13 @@ function playNote(x, kind) {
 // sixth breath per minute swells the level, shallow, never to silence. Into the shared room.
 function ambientOn() {
   ambientOff(true);
-  if (useFile('ambient')) {
-    ambientFile = new Audio(soundFiles.ambient); ambientFile.loop = true; ambientFile.volume = ambVol;
-    ambientFile.play().catch(() => {}); return;
+  if (soundSource === 'file') {   // never the synth from here: a take must not record the wrong pad
+    if (ambientBuf) { startAmbientFile(); return; }
+    if (ambientFail) { console.warn('ambient: file failed to decode, staying silent:', ambientFail); return; }
+    if (!ambientDecode) { console.warn('ambient: file mode but no ambient file listed, staying silent'); return; }
+    console.warn('ambient: file still decoding, silent until it is ready');
+    ambientDecode.then(() => { if (ambientWanted && soundSource === 'file' && !ambientPlay && ambientBuf) { console.log('ambient: decoded, starting late'); startAmbientFile(); } });
+    return;
   }
   const c = getAudioCtx(); if (!c) return;
   const t = c.currentTime, nodes = [];
@@ -1628,8 +1716,20 @@ function ambientOn() {
   lfo(0.1, 0.14, swell.gain, 0);                                      // the breath, ~6 per minute
   ambientSynth = { master, nodes };
 }
+// the decoded pad, looped, straight into the master (it is a finished texture: no shared room on top)
+function startAmbientFile() {
+  const c = getAudioCtx(); if (!c) return;
+  const t = c.currentTime, src = c.createBufferSource(), gain = c.createGain();
+  src.buffer = ambientBuf; src.loop = true;
+  gain.gain.setValueAtTime(0, t); gain.gain.linearRampToValueAtTime(ambVol, t + 3);
+  src.connect(gain).connect(masterOut(c)); src.start(t);
+  ambientPlay = { src, gain };
+}
 function ambientOff(quick) {
-  if (ambientFile) { ambientFile.pause(); ambientFile = null; }
+  if (ambientPlay) {
+    const c = getAudioCtx(), a = ambientPlay, ms = quick ? 0.3 : 3; ambientPlay = null;
+    if (c) { const t = c.currentTime; a.gain.gain.cancelScheduledValues(t); a.gain.gain.setValueAtTime(a.gain.gain.value, t); a.gain.gain.linearRampToValueAtTime(0, t + ms); a.src.stop(t + ms + 0.05); }
+  }
   if (ambientSynth) {
     const c = getAudioCtx(), a = ambientSynth, ms = quick ? 0.3 : 3; ambientSynth = null; if (!c) return;
     const t = c.currentTime;

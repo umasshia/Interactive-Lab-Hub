@@ -193,6 +193,8 @@ your response engages with what your master was really doing.
 **Document everything here — especially the storyboard and video. Photos of the
 prototype are great too.**
 
+**Credits:** Ambient track: "Uplifting Pad Texture" by samuelfjohanns, from Pixabay, used under the Pixabay Content License.
+
 ---
 
 
