@@ -205,7 +205,13 @@ The field in the autumn season, nobody interacting.
 
 ## Reflection
 
-*To be written.*
+The second round made us realize that we spent most of Part 1 trying to make the project look like teamLab. In Part 2, we started thinking more about what we personally wanted to change. The feedback from other groups helped because they asked questions we had not really considered, especially what could happen if two people interacted at the same time and how visitors would know what they could do. Even though our responses were still pre-programmed and manually triggered, thinking through these questions helped us imagine the project as a shared interaction instead of only a visual effect.
+
+We also learned that it is easy to keep adding features once an idea starts working. We added sound, seasons, flower life cycles, petal collisions, and several types of gestures. Some of these made the demonstration feel more alive, but together they also made the prototype harder to control and explain. If we worked on it again, we would probably focus on fewer interactions and develop them more fully. Most importantly, we would connect the visual effects to a camera or sensor so that the system could detect a visitor’s position and gestures instead of relying on a person at the keyboard or a scripted recording.
+
+The biggest thing we could not test was how the remix would feel as a real installation. Since we no longer had the projector, we had to document it through a scripted screen recording. The video shows our idea for how the flowers could respond, but it does not prove that someone standing in front of the wall would notice the responses or understand that they could interact. Our next step would be to add real-time tracking, project it at full scale, and let people try it without instructions. That would help us see which parts of the interaction are actually clear and which ones only seem clear because we already know how the system is supposed to work.
+
+Written by Shuning Liu.
 
 ---
 
