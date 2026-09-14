@@ -1,5 +1,5 @@
 # Interactive Prototyping: The Clock of Pi
-**NAMES OF COLLABORATORS HERE**
+**Collaborator:** Shuning Liu
 
 Does it feel like time is moving strangely during this semester?
 
@@ -205,7 +205,27 @@ We strongly discourage literal digital or analog clock display: Be creative.
 
 ** Insert ideas, sketches, [Verplank diagrams](https://ccrma.stanford.edu/courses/250a-fall-2004/IDSketchbok.pdf)), storyboards for your ideas **
 
+This section was worked on with my lab partner, Shuning Liu, whose own Lab Hub is [here](https://github.com/SinaL0123/Interactive-Lab-Hub/tree/Fall2026/Lab%202). I used AI to help organize my ideas, for research, and to help produce the sketches below.
 
+### Who Can I Call Clock
+
+I am in New York, my family is in Tbilisi, my sister is in Berlin, and a friend is in Madrid. Instead of four separate clocks, the PiTFT shows four horizontal bars, one per person, each a 24-hour strip that runs dark where they are asleep and green where it is a fine time to call, with amber at the edges in between, a black tick mark for the current time, and their local time written beside the bar. One bar is highlighted at any moment. Button B cycles the highlighted person forward through the four. Button A calls whoever is highlighted, sending a notification to my phone that places the call. If I press A while that person is in their dark zone, the screen does not just call, it asks first, something like "3:40 AM in Tbilisi. Call anyway?", and a second press of A goes through while B cancels back to the normal view. The Qwiic buttons' own LEDs double as a quick status check, green when the highlighted person is callable, red when they are not, so I do not even need to read the screen to know. Berlin and Madrid happen to share a timezone, which is part of the point, the unit here is people, not hours. Parts: the PiTFT, both Qwiic buttons, and my phone for the call step.
+
+<img src="images/sketch-who-can-i-call.png" width="600" />
+
+<img src="images/verplank-who-can-i-call.png" width="600" />
+
+### Candle Clock (Sina)
+
+My idea is to create a candle clock that represents time through candles burning. I chose candles because burning and melting show the passage of time in a natural way. On the default screen, there will be twelve candles, and each candle represents two hours. Past candles are melted, the current candle is burning, and future candles are still unlit.
+
+The two buttons allow the user to see different information. Pressing A shows a zoom-in view of the current candle. Pressing B opens the focus page, and holding B starts or ends a focus session. The focus timer will continue running even when the user switches to another screen. A small blue flame will indicate that focus mode is active. Pressing A and B together opens a memory page where each completed focus session becomes a wax seal. One seal represents one session, and its size represents the duration.
+
+I first thought about using the melted wax to create a different image each day, which led me to the idea of using wax seals as records of focused time. I am still not sure how detailed the candle animation and wax seals can be on the small Raspberry Pi screen, or how much information can fit clearly. I may need to simplify the graphics after testing the display and buttons.
+
+<img src="https://github.com/user-attachments/assets/53585817-603c-4384-b80f-b8949adfc4c7" width="600" />
+
+<img src="https://github.com/user-attachments/assets/4b97eaec-4750-4460-8cd5-f773318ee354" width="600" />
 
 **Put the names of the people you gave feedback to here. (Even better, add links to their repos here!)**
 
