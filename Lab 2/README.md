@@ -299,9 +299,11 @@ Do take advantage of having done the previous iteration to refine and simplify y
 
 ** Insert any updates ideas, sketches, [Verplank diagrams](https://ccrma.stanford.edu/courses/250a-fall-2004/IDSketchbok.pdf))!, storyboards for your ideas **
 
-Built the Who Can I Call Clock from the Part E concept: four horizontal 24-hour bars (one per contact), green/amber/dark to show whether it's a good time to call, a white tick for their current local time via `zoneinfo` (handles DST automatically). Button B cycles the highlighted contact; button A calls them if they're in the green window, or opens a confirm prompt first if not. Calling is a real bridged phone call (Twilio Voice: it dials the contact, and once they pick up, dials my own phone and connects us) rather than a simulated/on-screen-only call.
+Built the Who Can I Call Clock from the Part E concept: one full screen per contact, cycled with button B, showing a big clock face, a status dot and label (green "Good time to call", amber "Might be waking / winding down", or rose "Probably asleep") based on their local time via `zoneinfo` (handles DST automatically), and page dots for which of the four contacts you're on. Button A calls them directly if they're in the green window, or opens a full-screen confirm prompt first if not. Calling is a real bridged phone call (Twilio Voice: it dials the contact, and once they pick up, dials my own phone and connects us) rather than a simulated/on-screen-only call.
 
-My lab partner is Shuning Liu, whose own Lab Hub for the Candle Clock is [here](https://github.com/SinaL0123/Interactive-Lab-Hub/tree/Fall2026/Lab%202). (Still deciding with her whether our final repos end up structured the same way or stay separate.)
+My lab partner is Shuning Liu, whose own Lab Hub for the Candle Clock is [here](https://github.com/SinaL0123/Interactive-Lab-Hub/tree/Fall2026/Lab%202). (Still deciding with her whether our final repos end up structured the same way or stay separate.) Her final Candle Clock demo:
+
+https://youtube.com/shorts/4OHFGQ53504?feature=share
 
 \*\*\***Put a copy of your code in your Lab 2 Github repo.**\*\*\*
 
