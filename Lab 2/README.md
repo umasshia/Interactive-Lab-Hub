@@ -299,7 +299,11 @@ Do take advantage of having done the previous iteration to refine and simplify y
 
 ** Insert any updates ideas, sketches, [Verplank diagrams](https://ccrma.stanford.edu/courses/250a-fall-2004/IDSketchbok.pdf))!, storyboards for your ideas **
 
-Built the Who Can I Call Clock from the Part E concept: one full screen per contact, cycled with button B, showing a big clock face, a status dot and label (green "Good time to call", amber "Might be waking / winding down", or rose "Probably asleep") based on their local time via `zoneinfo` (handles DST automatically), and page dots for which of the four contacts you're on. Button A calls them directly if they're in the green window, or opens a full-screen confirm prompt first if not. Calling is a real bridged phone call (Twilio Voice: it dials the contact, and once they pick up, dials my own phone and connects us) rather than a simulated/on-screen-only call.
+Early version, first working pass at all four contacts on one screen as stacked bars:
+
+<img src="images/who-can-i-call-early-4bar.jpg" width="300" />
+
+This was hard to read up close (small text, thin bars), so I redesigned it into one full screen per contact instead. Built the Who Can I Call Clock from the Part E concept: one full screen per contact, cycled with button B, showing a big clock face, a status dot and label (green "Good time to call", amber "Might be waking / winding down", or rose "Probably asleep") based on their local time via `zoneinfo` (handles DST automatically), and page dots for which of the four contacts you're on. Button A calls them directly if they're in the green window, or opens a full-screen confirm prompt first if not. Calling is a real bridged phone call (Twilio Voice: it dials the contact, and once they pick up, dials my own phone and connects us) rather than a simulated/on-screen-only call.
 
 My lab partner is Shuning Liu, whose own Lab Hub for the Candle Clock is [here](https://github.com/SinaL0123/Interactive-Lab-Hub/tree/Fall2026/Lab%202). (We agreed to keep our repos structured the same way.) Her final Candle Clock demo:
 
