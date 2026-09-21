@@ -311,7 +311,7 @@ My lab partner is Shuning Liu, whose own Lab Hub for the Candle Clock is [here](
 
 https://github.com/user-attachments/assets/4fc4d7d3-3e2b-4d4f-bf9a-43ff75c2adc7
 
-I used AI (Claude) to help implement this: setting up the Twilio Voice integration (including working through several Twilio account/trial restrictions), the `zoneinfo`-based timezone bar logic, and the button-press state machine (cycle/confirm/call). The interaction design itself (bars-per-contact, confirm-before-disturbing, button roles) is from my own Part E writeup above.
+I used Claude to write some of the code and to guide me through Twilio setup, since I ran into several account/trial restriction complications getting real calling to work.
 
 As always, make sure you document contributions and ideas from others (and AI) explicitly in your writeup.
 
