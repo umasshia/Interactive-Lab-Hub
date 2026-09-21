@@ -263,7 +263,7 @@ One thing I'm curious about is how the different time blocks are decided. How do
 
 ***Amy:*** I really like how the candle metaphor extends into the wax seals for focus memories. My main suggestion would be to test whether the different button controls are easy to remember, since A, B, holding B, and A+B all have different functions. Simplifying some of the interactions might make the overall experience more intuitive.
 
-***My takeaway on the Who Can I Call Clock:*** TODO, write my own summary here.
+***My takeaway on the Who Can I Call Clock:*** David is right that it is more of a communication tool than a clock, and adding a real Twilio call made that more true, not less. I am fine with that. The clock part is what makes the call button worth pressing, because the whole point was that the unit is people, not hours. On Jindi's question, the awake and asleep hours are hardcoded per person. That was a deliberate shortcut to get the display and the call flow working, but it is the weakest part of the design. My sister's schedule is not the same every day, so the next step would be a manual override first, and calendar or status data after that if it turns out to be worth the setup.
 
 ## Update your Lab Hub
 
