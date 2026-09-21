@@ -229,6 +229,12 @@ I first thought about using the melted wax to create a different image each day,
 
 **Put the names of the people you gave feedback to here. (Even better, add links to their repos here!)**
 
+* David Zhang: https://github.com/davidzhanggg/Interactive-Lab-Hub/tree/Fall2026/Lab%202
+
+* Jindi Chai: https://github.com/JindiChai/Interactive-Lab-Hub/blob/Fall2026/Lab%202
+
+* Amy Gao: https://github.com/zg375/Interactive-Lab-Hub/tree/86dc14dd4b592afbeb4f4187617a6ae88da5ad3f/Lab%202
+
 # Lab 2 Part 2
 
 ## Prep 
@@ -237,6 +243,27 @@ I first thought about using the melted wax to create a different image each day,
 
 2. Look at and give feedback on the Part E. for at least 3 other people in the class and get 3 people to comment on your Part E!)
 **Put the feedback for your ideas here.**
+
+David, Jindi, and Amy reviewed our shared Part E, which covers both ideas below.
+
+***David:*** I like the concept of using candles to represent the times. The storyboard is very visually appealing and provides alot of helpful information. The colors and highlights allow readers to easily figure out what is happening in the interaction. One improvement that could be worked on is maybe more explanation on the wax seals. The wax seals size representing how long the study session / focus is very vague and doesn't tell much information. It would be helpful to know how much represents what, maybe with colors instead. For the two ideas, I personally more into the first one because is more related to the clock idea, the other is more complex and cool but looks more like a communication tool.
+
+***Jindi:*** Candle Clock
+
+I really like how you use burning and melting candles as a metaphor for the passage of time. I also think the focus mode is very useful. Using visual elements like wax seals instead of just text to record focus sessions makes it easier for users to see their progress, and I think it can also give them a stronger sense of accomplishment.
+
+One small question I have is about the screen display. Since one candle represents two hours, there will be 12 candles on the screen. Would they be too small or make the screen feel crowded? Also, when there are more and more wax seals and they no longer fit on one screen, how would they be displayed? Would they be organized by time period, or could users switch between pages?
+
+Who Can I Call Clock
+
+I think this project does a really nice job of combining time zones, family, and communication. It is very practical, but also has a warm and personal feeling, which reminds me of my own family and friends. Because we are in different time zones, they sometimes hesitate to call me because they don't know if I'm sleeping or in class. If everyone had a similar "clock," I think it could help a lot with this problem.
+
+I also like the use of bars and different colors to show people's status and whether they are available to call. Being able to call someone directly with a button is also very convenient because you don't need to spend time finding them in your contacts.
+One thing I'm curious about is how the different time blocks are decided. How do we know when it is a "good time to call" for each person? If someone is awake but is working or in class, would that also be reflected on the display? Also, would users manually set their usual available times, or could the clock get this information automatically from their calendar or other sources?
+
+***Amy:*** I really like how the candle metaphor extends into the wax seals for focus memories. My main suggestion would be to test whether the different button controls are easy to remember, since A, B, holding B, and A+B all have different functions. Simplifying some of the interactions might make the overall experience more intuitive.
+
+***My takeaway on the Who Can I Call Clock:*** TODO, write my own summary here.
 
 ## Update your Lab Hub
 
@@ -272,15 +299,19 @@ Do take advantage of having done the previous iteration to refine and simplify y
 
 ** Insert any updates ideas, sketches, [Verplank diagrams](https://ccrma.stanford.edu/courses/250a-fall-2004/IDSketchbok.pdf))!, storyboards for your ideas **
 
+Built the Who Can I Call Clock from the Part E concept: four horizontal 24-hour bars (one per contact), green/amber/dark to show whether it's a good time to call, a white tick for their current local time via `zoneinfo` (handles DST automatically). Button B cycles the highlighted contact; button A calls them if they're in the green window, or opens a confirm prompt first if not. Calling is a real bridged phone call (Twilio Voice: it dials the contact, and once they pick up, dials my own phone and connects us) rather than a simulated/on-screen-only call.
+
+My lab partner is Shuning Liu, whose own Lab Hub for the Candle Clock is [here](https://github.com/SinaL0123/Interactive-Lab-Hub/tree/Fall2026/Lab%202). (Still deciding with her whether our final repos end up structured the same way or stay separate.)
 
 \*\*\***Put a copy of your code in your Lab 2 Github repo.**\*\*\*
 
-\*\*\***Take a video of your PiClock.**\*\*\*
+[`who_can_i_call_clock.py`](who_can_i_call_clock.py). Its companion `who_can_i_call_config.py` (Twilio credentials, contacts' phone numbers/timezones) is intentionally gitignored and not committed, since it holds real API credentials.
 
+\*\*\***Take a video of your PiClock.**\*\*\*
 
 https://github.com/user-attachments/assets/4fc4d7d3-3e2b-4d4f-bf9a-43ff75c2adc7
 
-
+I used AI (Claude) to help implement this: setting up the Twilio Voice integration (including working through several Twilio account/trial restrictions), the `zoneinfo`-based timezone bar logic, and the button-press state machine (cycle/confirm/call). The interaction design itself (bars-per-contact, confirm-before-disturbing, button roles) is from my own Part E writeup above.
 
 As always, make sure you document contributions and ideas from others (and AI) explicitly in your writeup.
 
