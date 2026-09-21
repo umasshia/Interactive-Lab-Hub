@@ -248,6 +248,8 @@ Start small, pick just one element of your overall idea, just to show you have a
 
 \*\*\***Put a copy of your code in your Lab 2 Github repo.**\*\*\*
 
+One small addition on top of the barebones clock: a row of 12 candles, drawn as plain rectangles (one per 2-hour block of the day), that shrinks as the current block burns down. [`piclock_modified.py`](piclock_modified.py)
+
 ## Make a short video of your modified barebones PiClock
 
 https://github.com/user-attachments/assets/9c5168b4-784c-475d-bb27-4446f6f01775
