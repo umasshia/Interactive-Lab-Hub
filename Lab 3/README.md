@@ -1,186 +1,190 @@
 # Chatterboxes
 
-**NAMES OF COLLABORATORS HERE**
+**Collaborators:** none, I did this lab alone.
 
-[![Watch the video](https://user-images.githubusercontent.com/1128669/135009222-111fe522-e6ba-46ad-b6dc-d1633d21129c.png)](https://youtu.be/LZ0VJClIlRI?si=Yy84mcyVYuVV19mn)
-
-In this lab, we want you to design interaction with a speech-enabled device — something that listens and talks to you. This device can do anything *but* control lights (since we already did that in Lab 1). First, we want you to storyboard what you imagine the conversational interaction to be like. Then you will use wizarding techniques to elicit examples of what people might say, ask, or respond. We then want you to use the examples collected from at least two other people to inform the redesign of the device.
-
-We will focus on **audio** as the main modality for interaction to start; these general techniques can be extended to **video**, **haptics** or other interactive mechanisms in the second part of the Lab.
-
-A note on what you are building with. Speech interfaces are usually taught as two boxes — speech-in, speech-out — and that framing hides the part that actually determines whether an interaction works. Between listening and speaking sits the question of **whose turn it is**: when does the device decide you have finished talking, and how long does it make you wait before it answers? This lab gives you direct control over both, and we will ask you to notice what changes when you move them.
-
-## Prep for Part 1: Get the Latest Content and Pick up Additional Parts
-
-Please check instructions in [prep.md](prep.md) and complete the setup.
-
-### Pick up Web Camera If You Don't Have One
-
-Students who have not already received a web camera will receive their Webcam and at the beginning of lab. If you cannot make it to class this week, please contact the TAs to ensure you get these.
-
-### Get the Latest Content
-
-As always, pull updates from the class Interactive-Lab-Hub to both your Pi and your own GitHub repo.
-
-**\[recommended\]** Option 1: On the Pi, `cd` to your `Interactive-Lab-Hub`, pull the updates from upstream (class lab-hub) and push the updates back to your own GitHub repo. You will need the *personal access token* for this.
-
-```
-pi@ixe00:~$ cd Interactive-Lab-Hub
-pi@ixe00:~/Interactive-Lab-Hub $ git pull upstream Fall2026
-pi@ixe00:~/Interactive-Lab-Hub $ git add .
-pi@ixe00:~/Interactive-Lab-Hub $ git commit -m "get lab3 updates"
-pi@ixe00:~/Interactive-Lab-Hub $ git push
-```
-
-Option 2: On your own GitHub repo, create a pull request to get updates from the class Interactive-Lab-Hub. After you have the latest updates online, go to your Pi, `cd` to your `Interactive-Lab-Hub` and use `git pull`.
+A speech-enabled bedside alarm that never grants a snooze outright. It counters with less time plus one small task, records my promise, and plays it back to me if I do not follow through. Storyboard and script are in Part D.
 
 ---
 
 # Part 1
 
-## Setup
-
-Create and activate a virtual environment for this lab:
-
-```
-pi@ixe00:~$ cd Interactive-Lab-Hub/Lab\ 3
-pi@ixe00:~/Interactive-Lab-Hub/Lab 3 $ python3 -m venv .venv
-pi@ixe00:~/Interactive-Lab-Hub/Lab 3 $ source .venv/bin/activate
-(.venv) pi@ixe00:~/Interactive-Lab-Hub/Lab 3 $
-```
-
-Install the Python dependencies:
-
-```
-(.venv) $ pip install -r requirements.txt
-```
-
-This takes a few minutes. If you would like it to take considerably less time, [`uv`](https://docs.astral.sh/uv/) is a drop-in replacement for `pip` that is dramatically faster on the Pi:
-
-```
-(.venv) $ pip install uv && uv pip install -r requirements.txt
-```
-
-Then run the setup script, which installs the classic speech synthesizers, downloads the voice activity detection model, and pre-fetches a neural voice and a speech recognition model so you are not waiting on downloads during lab:
-
-```
-(.venv):~$ cd speech-scripts
-(.venv) $ ./setup.sh
-```
-
-Check your audio devices before going further. `arecord -l` lists capture devices and `aplay -l` lists playback devices; if your webcam microphone or Bluetooth speaker does not appear, fix that first — every script below assumes the system defaults are the ones you want.
-
 ## A. Text to Speech
 
-Your Pi can speak in several quite different ways, and the differences are audible in a way that matters for design. In `speech-scripts/` there are shell scripts for each.
+I tried all three engines on the same greeting. My greeting script uses Piper: [`speech-scripts/greet_samu.sh`](speech-scripts/greet_samu.sh). It says "Hello Samu" rather than "Hello Giorgi" because Piper pronounces Giorgi as "Jorgee".
 
-### The classic engines
+- **espeak-ng:** very robotic and close to hard to understand. I could follow it, but I had to concentrate the whole time it was talking.
+- **festival:** also robotic and sounds similar to espeak, though not the same. The voice is deeper and a little easier to understand.
+- **Piper:** sounds the most like a real person and is by far the easiest to understand. The cadence is a little off, so you can tell it is not human, but it sounds good.
 
-```
-(.venv) $ cd speech-scripts
+**Is the same greeting, in these different voices, the same greeting?**
 
-(.venv) $ sudo apt update
-(.venv) $ sudo apt install -y espeak festival festvox-kallpc16k
-
-(.venv) $ ./espeak_demo.sh
-(.venv) $ ./festival_demo.sh
-```
-
-You can run these `.sh` files by typing `./filename`, and read one with `cat filename`. You can also play audio files directly with `aplay filename` — try `aplay lookdave.wav`.
-
-These are all decades-old technology and they sound like it. `espeak-ng` is a *formant synthesizer*: it generates speech from an acoustic model of the vocal tract, which is why it sounds robotic but also why the whole thing fits in a couple of megabytes and responds instantly. `festival` is *concatenative*: they stitch together recorded fragments of a real speaker, which sounds more human but breaks audibly at the seams.
-
-### Neural TTS with Piper
-
-Note that the Piper command line changed in version 1.x — voices are now downloaded explicitly with `python3 -m piper.download_voices`, and you invoke it as `python3 -m piper`. Tutorials you find online may show the old `echo ... | piper --model ...` form, which no longer works. Browse the [voice samples](https://rhasspy.github.io/piper-samples) and download a different one if you'd like:
-
-```
-(.venv) $ python3 -m piper.download_voices en_US-lessac-medium
-```
-
-[Piper](https://github.com/OHF-Voice/piper1-gpl) synthesizes speech with a small neural network, runs comfortably on the Pi 5, and sounds markedly better than the above.
-
-```
-(.venv) $ ./piper_demo.sh
-```
-
-The demo script also shows `--output-raw`, which streams audio to the speaker as it is generated rather than writing a file first. Listen for the difference in how quickly speech begins. In a conversational system this gap is the thing your user experiences as responsiveness.
-
-\*\***Write your own shell file to use your favorite of these TTS engines to have your Pi greet you by name.**\*\*
-(This shell file should be saved to your own repo for this lab.)
-
-\*\***Then answer: Is the same greeting, in these different voices, the same greeting? Describe one concrete way the voice changed what the utterance seemed to mean or who seemed to be speaking.**\*\*
+No, it was not the same greeting. The words did not change, but who was saying them did. With espeak and festival it felt like a computer reading a sentence out loud, so "welcome back" was just information. Piper still sounded synthetic, but it was close enough to a person saying it to me that the same words felt like an actual greeting instead of a message.
 
 ## B. Speech to Text
 
-We use [faster-whisper](https://github.com/SYSTRAN/faster-whisper), a reimplementation of OpenAI's Whisper model that runs several times faster on CPU and does not require PyTorch. All processing happens on the Pi; nothing is sent to a server.
+Class recording, `lookdave.wav` (3.72s). All three sizes transcribed it correctly.
+
+| model | transcription | real-time factor |
+|---|---|---|
+| tiny.en | 1.09s | 0.29x |
+| base.en | 2.03s | 0.55x |
+| small.en | 6.07s | 1.63x |
+
+My own recording, 10 seconds, saying "Hi I am Samu, my favourite numbers are 1 2 3 5 8 13 21 34".
+
+| model | transcription | real-time factor | transcript |
+|---|---|---|---|
+| tiny.en | 1.47s | 0.15x | Hi, I am some my favorite numbers are 1, 2, 3, 5, 8, 13, 21, 34. |
+| base.en | 2.55s | 0.26x | Hi, I am Samu. My favorite numbers are 1, 2, 3, 5, 8, 13, 21, 34. |
+| small.en | 7.93s | 0.79x | Hi, I am Samu. My favorite numbers are 1, 2, 3, 5, 8, 13, 21, 34. |
+
+**At what point does the accuracy improvement stop being worth the delay, for a system that has to answer you?**
+
+For me the line is at base.en. Going from tiny to base cost about one extra second on a ten second clip and fixed the only mistake, which was my name. Going from base to small cost another five seconds and fixed nothing. For a device that has to answer me, a one second wait feels like it is thinking, but a wait longer than what I said feels broken, and small.en was already close to that on the class recording, where it ran slower than real time.
+
+**Script that verbally asks for a numerical input and records the answer:** [`speech-scripts/ask_number.py`](speech-scripts/ask_number.py). Piper asks the question, Silero VAD decides when the answer has ended, faster-whisper (base.en) transcribes it, and the device reads the digits back. The raw audio and transcript are saved so the digit errors can be inspected. The endpointing silence is set to 1.0s instead of the class default of 0.4s, because people say numbers in groups with longer pauses between the groups.
+
+Three runs:
+
+| question | I said | heard | digits |
+|---|---|---|---|
+| zip code | one one two three four | `One, one, two, three, four.` | none |
+| zip code | one two three four five | `1, 2, 3, 4, 5.` | 12345 |
+| phone number | 917 550 7533, in groups | `917 550 753 3` | 9175507533 |
+
+Two characteristic errors showed up. In the first run whisper wrote the digits as words, so the digit filter found nothing, and the same words came back as digits on the next run. In the phone number run every digit was right but the grouping was not, so a device reading it back would sound wrong while being right.
+
+## C. Turn-taking
+
+**At 0.2s, what kinds of normal speech get cut off? At 1.5s, what does the delay make the system seem like?**
+
+At 0.2 seconds it felt like I had to get everything out fast. Any normal pause to think was treated as the end of my turn, so I was being cut off mid idea. "I want to order... the dumplings" came back as two separate turns:
 
 ```
-(.venv) $ python transcribe.py lookdave.wav
+[1.3s speech, 0.95s to transcribe]  I want to order...
+[0.8s speech, 0.85s to transcribe]  the dumplings.
 ```
 
-The transcript is not the interesting output here — the timings are. Run it again with a larger model and compare:
+At 1.5 seconds it worked, but it felt a little dragged out. I pause a lot when I talk, so it never cut me off, but the wait after I finished was long enough to notice.
+
+The default 0.4 seconds felt smooth. It never cut me off and it did not leave me waiting either, so this is the one that felt most like talking to something that was listening.
+
+Echo bot at the default 0.4s:
 
 ```
-(.venv) $ python transcribe.py lookdave.wav --model base.en
-(.venv) $ python transcribe.py lookdave.wav --model small.en
-#  noted that the first run may take longer because the model is downloaded, and that the HF unauthenticated-request warning is expected and not an error.
-```
-
-Available sizes, smallest first: `tiny.en`, `base.en`, `small.en`, `medium.en`. The `.en` variants are English-only and faster than their multilingual counterparts at the same size.
-
-\*\***Record a few seconds of your own speech (`arecord -d 5 -f cd -c 1 -r 16000 test.wav`) and transcribe it with at least two model sizes. Report the real-time factor for each. At what point does the accuracy improvement stop being worth the delay, for a system that has to answer you?**\*\*
-
-\*\***Write your own script that verbally asks for a numerical input (a phone number, zipcode, number of pets) and records the answer the respondent provides.**\*\* Numbers are a good stress test — transcription systems make characteristic errors on digit strings, and you will want to know what they are before you design around them.
-
-## C. Turn-taking: knowing when someone has stopped talking
-
-Everything so far has worked on fixed audio files. A real conversational device does not get told when to start and stop recording — it has to decide. This is the problem that makes speech interfaces hard, and it is mostly not a speech recognition problem.
-
-We use a **voice activity detector** (VAD) to segment the microphone stream into utterances. `listen.py` runs Silero VAD continuously and hands each detected utterance to faster-whisper:
-
-```
-(.venv) $ cd speech-scripts
-(.venv) $ python listen.py
-```
-
-Speak, pause, and watch it transcribe. Now change the endpointing threshold — the amount of silence the system requires before it decides your turn is over:
-
-```
-(.venv) $ python listen.py --min-silence 0.2
-(.venv) $ python listen.py --min-silence 1.5
-```
-
-\*\***Try both extremes, and something in between. Describe what each one feels like to talk to. Note specifically: at 0.2s, what kinds of normal speech get cut off? At 1.5s, what does the delay make the system seem like?**\*\*
-
-There is no correct value. A system that takes drink orders and a system that listens to someone think out loud want very different thresholds, and the right one depends on what your users are doing with their pauses.
-
-### The complete loop
-
-`echo_bot.py` puts the pieces together: it listens, endpoints, transcribes, and speaks a reply through Piper. The dialogue policy is deliberately trivial — it repeats what you said — so that everything you notice is a property of the timing rather than the content.
-
-```
-(.venv) $ python echo_bot.py
+  heard: I need to get bread.
+  reply: You said: I need to get bread.
+  [asr 0.89s | tts first audio 0.28s | total gap 1.17s]
 ```
 
 ## D. Storyboard
 
-Storyboard and/or use a Verplank diagram to design a speech-enabled device. (Stuck? Make a device that talks for dogs. If that is too stupid, find an application that is better than that.)
+### The Negotiating Alarm
 
-\*\***Post your storyboard and diagram here.**\*\*
+![Storyboard](images/storyboard.png)
 
-Write out what you imagine the dialogue to be. Use cards, post-its, or whatever method helps you develop alternatives or group responses.
+The storyboard covers scenes 1 and 2 of the script below. Scenes 3 and 4 are the rest of the ladder, and scene 5 is design only.
 
-\*\***Please describe and document your process.**\*\*
+**Process**
 
-Your script should include the pauses. Where does your device wait, and for how long? You now know from Part C that this is a parameter you have to choose, not something that happens for free.
+I commute to school and need to be there by 8:30, and I struggle with it every morning, so I wanted an alarm that fights back. I started by listing devices that would be funny to argue with and picked this one. My first version either allowed the snooze or refused it, which ends after one exchange. Having it counter-offer instead, less time plus one small task, gave it a reason to come back with a second question, and that second question is really the alarm. The ladder came from asking what happens if I just fall asleep again: each round halves the snooze and shortens the wait, and silence counts as a no. I also thought about having it text a family member to judge my excuse, and a mode where it narrates me not moving, but both need another person or voice, so they stayed as notes. Drawing the storyboard moved one thing. I had the device replaying my recorded promise late in the ladder, but in the panels it was clearly the moment that makes the idea work, so it became the first thing the device does when I go quiet.
+
+**Dialogue script**
+
+```
+THE NEGOTIATING ALARM
+Dialogue script, CS 5424 Lab 3 Part 1
+
+Legend
+[wait Ns]    device listens for up to N seconds, timed from the moment it stops speaking.
+[sleep N]    device is silent and not listening for N.
+[sensor]     the sensor decides whether a task was done. The question the device asks is what it says about it, not how it finds out. Water: glass lifted off a copper tape pad. Hand: palm on the capacitive pad on top of the device.
+[off button] a physical red button. Stops everything at any point.
+
+Rules
+Answers the device understands: yes (yes, fine, ok, sure), no, a number of minutes, a day of the week.
+Silence, mumbling, or anything it cannot map moves one rung down. It never stands still, whether it was a check or an offer.
+Ladder: opening wait 20s. Then 5 min / 15s wait, 2 min / 10s, 1 min / 5s, then 30s grace with no question, then the alarm at full volume. Ten minutes is what I ask for, never what I get.
+Times are rounded to the minute. Storyboard covers scenes 1 and 2. Scene 5 is design only, not in the Part 2 build.
+
+SCENE 1, 6:45 AM, dark room
+
+DEVICE:  It's 6:45.
+         [wait 20s]
+G:       Ten more minutes.
+DEVICE:  Five. And you drink the water.
+         [wait 15s]
+G:       Fine.
+DEVICE:  Say it.
+         [wait 15s]
+G:       I'll drink the water.
+DEVICE:  Recorded. Five minutes.
+         [sleep 5 min]
+
+SCENE 2, 6:50 AM
+
+DEVICE:  [sensor: glass still on the pad]
+         Did you drink the water?
+         [wait 15s]
+G:       (nothing)
+DEVICE:  [plays G's own voice] "I'll drink the water."
+         [wait 10s]
+G:       (mumbles)
+DEVICE:  I didn't get that. Two minutes. Then you tell me what day it is.
+         [wait 10s]
+G:       Ok.
+DEVICE:  Two minutes.
+         [sleep 2 min]
+
+SCENE 2 ALT, the happy path
+
+DEVICE:  [sensor: glass lifted during the sleep]
+         You drank the water. Good morning.
+         [off]
+
+SCENE 3, 6:53 AM
+
+DEVICE:  What day is it?
+         [wait 10s]
+G:       Monday.
+DEVICE:  It's Sunday. One minute. Then your hand on the device.
+         [wait 5s]
+G:       Ok.
+DEVICE:  One minute.
+         [sleep 1 min]
+
+SCENE 3 ALT, the happy path
+
+G:       Sunday.
+DEVICE:  You're awake. Good morning.
+         [off]
+
+SCENE 4, 6:54 AM
+
+DEVICE:  Hand on the device.
+         [wait 5s, sensor: nothing]
+         Thirty seconds.
+         [sleep 30s]
+         [alarm at full volume. No question. Stops only on sensor: hand on the device, or the off button.]
+
+SCENE 5, 11:20 PM, same day (design only)
+
+G:       Alarm for 6:45.
+DEVICE:  6:45. You still owe me the water. That's first tomorrow.
+         [off]
+```
 
 ## E. Acting out the dialogue
 
-Find a partner, and *without sharing the script with your partner* try out the dialogue you've designed, where you (as the device designer) act as the device you are designing. Please record this interaction (for example, using Zoom's record feature).
+**Recording:** to do.
 
-\*\***Describe if the dialogue seemed different than what you imagined when it was acted out, and how.**\*\*
+**Describe if the dialogue seemed different than what you imagined when it was acted out, and how.**
 
+To do.
+
+---
+
+The idea, the storyboard panels, the dialogue script, and all written answers are mine. The storyboard drawing was generated with AI from my panel descriptions. I used Claude to write the greeting and number-asking scripts and to proofread my writing.
 
 ---
 
