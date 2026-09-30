@@ -137,6 +137,7 @@ class Sensors:
             self.cap = adafruit_mpr121.MPR121(busio.I2C(board.SCL, board.SDA))
         except Exception as e:  # noqa: BLE001
             print(f"WARNING: no MPR121 ({e}); sensor checks will always be 'not done'")
+        time.sleep(0.3)  # the chip's first reading after wake-up is 0
         self.water_baseline = self.water_reading()
 
     def water_reading(self) -> int:
