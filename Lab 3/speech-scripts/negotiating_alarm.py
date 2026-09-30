@@ -1,0 +1,292 @@
+#!/usr/bin/env python3
+"""The Negotiating Alarm, Lab 3 Part 2.
+
+An alarm that never grants a snooze outright. It counters with less time plus
+one small task, records my promise, and plays it back if I do not follow
+through. Each rung halves the snooze and shortens how long it waits for an
+answer. Silence, or anything it cannot map, moves one rung down.
+
+    python negotiating_alarm.py                  # alarm fires now, real timings
+    python negotiating_alarm.py --speed 20       # snoozes 20x shorter, for demos
+    python negotiating_alarm.py --alarm-in 90    # fire 90 seconds from now
+    python negotiating_alarm.py --sensor-test    # print pad readings, no dialogue
+
+Sensors (MPR121 capacitive board over Qwiic):
+  water pad  a glass of water sits on copper tape clipped to this pad. "Drank
+             the water" means the reading changed from what it was when the
+             alarm fired, either direction, so it does not matter whether the
+             glass was there at boot.
+  hand pads  bare pads on top of the device. "Hand on the device" means any of
+             them reads a touch.
+"""
+
+import argparse
+import re
+import sys
+import time
+from datetime import datetime
+from pathlib import Path
+
+import numpy as np
+import sherpa_onnx
+import sounddevice as sd
+import soundfile as sf
+from faster_whisper import WhisperModel
+from piper import PiperVoice
+
+SAMPLE_RATE = 16000
+LAB_DIR = Path(__file__).resolve().parent.parent
+DEFAULT_VAD = LAB_DIR / "models" / "silero_vad.onnx"
+DEFAULT_VOICE = LAB_DIR / "voices" / "en_US-lessac-medium.onnx"
+CLIPS_DIR = Path(__file__).resolve().parent / "promises"
+
+# The ladder. Ten minutes is what I ask for, never what I get.
+OPEN_WAIT = 20
+RUNGS = [
+    dict(task="water", snooze=5 * 60, wait=15,
+         offer="Five. And you drink the water.", confirm="Recorded. Five minutes."),
+    dict(task="day", snooze=2 * 60, wait=10,
+         offer="Two minutes. Then you tell me what day it is.", confirm="Two minutes."),
+    dict(task="hand", snooze=60, wait=5,
+         offer="One minute. Then your hand on the device.", confirm="One minute."),
+]
+GRACE = 30
+
+YES = {"yes", "yeah", "yep", "fine", "ok", "okay", "sure", "alright"}
+DAYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
+
+
+# --- speech -----------------------------------------------------------------
+
+class Speaker:
+    def __init__(self, voice_path: Path) -> None:
+        self.voice = PiperVoice.load(str(voice_path))
+
+    def say(self, text: str) -> None:
+        print(f"DEVICE: {text}", flush=True)
+        for chunk in self.voice.synthesize(text):
+            sd.play(np.frombuffer(chunk.audio_int16_bytes, dtype=np.int16),
+                    samplerate=chunk.sample_rate)
+            sd.wait()
+
+
+class Listener:
+    """One utterance at a time, with a deadline. The window is timed from the
+    moment listen() is called, which is right after the device stops speaking."""
+
+    def __init__(self, vad_model: Path, whisper_model: str, min_silence: float) -> None:
+        self.recognizer = WhisperModel(whisper_model, device="cpu", compute_type="int8")
+        self.config = sherpa_onnx.VadModelConfig()
+        self.config.silero_vad.model = str(vad_model)
+        self.config.silero_vad.min_silence_duration = min_silence
+        self.config.sample_rate = SAMPLE_RATE
+
+    def listen(self, seconds: float, until=None):
+        """Returns (text, samples) or (None, None) on timeout. `until` is an
+        optional callable polled between reads; if it returns True we stop
+        early and return ("<sensor>", None)."""
+        vad = sherpa_onnx.VoiceActivityDetector(self.config, buffer_size_in_seconds=30)
+        window = self.config.silero_vad.window_size
+        deadline = time.monotonic() + seconds
+        buffer = np.empty(0, dtype=np.float32)
+        per_read = int(0.1 * SAMPLE_RATE)
+        print(f"        [listening {seconds}s]", flush=True)
+        with sd.InputStream(channels=1, dtype="float32", samplerate=SAMPLE_RATE) as stream:
+            while time.monotonic() < deadline:
+                if until is not None and until():
+                    return "<sensor>", None
+                chunk, _ = stream.read(per_read)
+                buffer = np.concatenate([buffer, chunk.reshape(-1)])
+                while len(buffer) > window:
+                    vad.accept_waveform(buffer[:window])
+                    buffer = buffer[window:]
+                if not vad.empty():
+                    samples = np.array(vad.front.samples, dtype=np.float32)
+                    vad.pop()
+                    segments, _ = self.recognizer.transcribe(samples, beam_size=1)
+                    text = " ".join(s.text.strip() for s in segments).strip()
+                    print(f"HEARD:  {text!r}", flush=True)
+                    return text, samples
+        print("HEARD:  (nothing)", flush=True)
+        return None, None
+
+
+def is_yes(text) -> bool:
+    words = set(re.findall(r"[a-z']+", (text or "").lower()))
+    return bool(words & YES)
+
+
+def said_day(text) -> str | None:
+    for d in DAYS:
+        if d in (text or "").lower():
+            return d
+    return None
+
+
+# --- sensors ----------------------------------------------------------------
+
+class Sensors:
+    """Wraps the MPR121. If the board is missing, every check reports 'not done'
+    and the alarm still runs, so the dialogue can be tested on its own."""
+
+    def __init__(self, water_pad: int, hand_pads: list[int], water_delta: int) -> None:
+        self.water_pad, self.hand_pads, self.water_delta = water_pad, hand_pads, water_delta
+        self.cap = None
+        try:
+            import board, busio, adafruit_mpr121
+            self.cap = adafruit_mpr121.MPR121(busio.I2C(board.SCL, board.SDA))
+        except Exception as e:  # noqa: BLE001
+            print(f"WARNING: no MPR121 ({e}); sensor checks will always be 'not done'")
+        self.water_baseline = self.water_reading()
+
+    def water_reading(self) -> int:
+        return self.cap.filtered_data(self.water_pad) if self.cap else 0
+
+    def water_done(self) -> bool:
+        return self.cap is not None and \
+            abs(self.water_reading() - self.water_baseline) > self.water_delta
+
+    def hand_done(self) -> bool:
+        return self.cap is not None and any(self.cap[i].value for i in self.hand_pads)
+
+    def test(self) -> None:
+        print(f"water pad {self.water_pad} baseline {self.water_baseline}, "
+              f"delta needed {self.water_delta}. Ctrl-C to stop.")
+        while True:
+            hand = [i for i in self.hand_pads if self.cap[i].value] if self.cap else []
+            print(f"water {self.water_reading():4d}  done={self.water_done()!s:5}  "
+                  f"hand touched {hand}", flush=True)
+            time.sleep(0.25)
+
+
+# --- the alarm --------------------------------------------------------------
+
+def beep(seconds: float = 0.3, freq: int = 880) -> None:
+    t = np.arange(int(seconds * 22050)) / 22050
+    sd.play((np.sign(np.sin(2 * np.pi * freq * t)) * 0.9).astype(np.float32), 22050)
+    sd.wait()
+
+
+def snooze(seconds: float, speed: float, until=None) -> bool:
+    """Silent, not listening. Polls `until` (a sensor check); True if it fired."""
+    seconds = seconds / speed
+    print(f"        [snooze {seconds:.0f}s]", flush=True)
+    end = time.monotonic() + seconds
+    while time.monotonic() < end:
+        if until is not None and until():
+            return True
+        time.sleep(0.2)
+    return False
+
+
+def run(speaker: Speaker, listener: Listener, sensors: Sensors, speed: float) -> None:
+    today = DAYS[datetime.now().weekday()]
+    speaker.say(f"It's {datetime.now().strftime('%-I:%M')}.")
+    listener.listen(OPEN_WAIT)  # whatever they say, the counter-offer is the same
+
+    for rung in RUNGS:
+        speaker.say(rung["offer"])
+        text, _ = listener.listen(rung["wait"])
+        if not is_yes(text):
+            continue  # silence or anything else: one rung down
+
+        if rung["task"] == "water":
+            speaker.say("Say it.")
+            text, samples = listener.listen(rung["wait"])
+            if not text or "water" not in text.lower():
+                continue
+            CLIPS_DIR.mkdir(exist_ok=True)
+            clip = CLIPS_DIR / f"{datetime.now():%Y%m%d_%H%M%S}.wav"
+            sf.write(clip, samples, SAMPLE_RATE)
+            speaker.say(rung["confirm"])
+            if snooze(rung["snooze"], speed, until=sensors.water_done):
+                speaker.say("You drank the water. Good morning.")
+                return
+            speaker.say("Did you drink the water?")
+            listener.listen(rung["wait"], until=sensors.water_done)
+            if sensors.water_done():
+                speaker.say("You drank the water. Good morning.")
+                return
+            print("DEVICE: [plays back the promise]", flush=True)
+            sd.play(samples, SAMPLE_RATE)
+            sd.wait()
+            listener.listen(10, until=sensors.water_done)
+            if sensors.water_done():
+                speaker.say("You drank the water. Good morning.")
+                return
+            speaker.say("I didn't get that.")
+
+        elif rung["task"] == "day":
+            speaker.say(rung["confirm"])
+            snooze(rung["snooze"], speed)
+            speaker.say("What day is it?")
+            text, _ = listener.listen(rung["wait"])
+            if said_day(text) == today:
+                speaker.say("You're awake. Good morning.")
+                return
+            speaker.say(f"It's {today.capitalize()}.")
+
+        elif rung["task"] == "hand":
+            speaker.say(rung["confirm"])
+            if snooze(rung["snooze"], speed, until=sensors.hand_done):
+                speaker.say("Good morning.")
+                return
+            speaker.say("Hand on the device.")
+            listener.listen(rung["wait"], until=sensors.hand_done)
+            if sensors.hand_done():
+                speaker.say("Good morning.")
+                return
+
+    # Bottom of the ladder.
+    speaker.say("Thirty seconds.")
+    if snooze(GRACE, speed, until=sensors.hand_done):
+        speaker.say("Good morning.")
+        return
+    print("DEVICE: [ALARM] hand on the device or Ctrl-C to stop", flush=True)
+    while not sensors.hand_done():
+        beep()
+        time.sleep(0.15)
+    speaker.say("Good morning.")
+
+
+def main() -> None:
+    p = argparse.ArgumentParser(description=__doc__,
+                                formatter_class=argparse.RawDescriptionHelpFormatter)
+    p.add_argument("--speed", type=float, default=1.0,
+                   help="divide snoozes and grace by this; answer windows stay real")
+    p.add_argument("--alarm-in", type=float, default=0, help="seconds until the alarm fires")
+    p.add_argument("--model", default="base.en")
+    p.add_argument("--min-silence", type=float, default=0.8)
+    p.add_argument("--water-pad", type=int, default=0)
+    p.add_argument("--hand-pads", type=int, nargs="+", default=[6, 7, 8, 9, 10, 11])
+    p.add_argument("--water-delta", type=int, default=30,
+                   help="change in the water pad reading that counts as lifted")
+    p.add_argument("--sensor-test", action="store_true")
+    p.add_argument("--vad-model", type=Path, default=DEFAULT_VAD)
+    p.add_argument("--voice", type=Path, default=DEFAULT_VOICE)
+    args = p.parse_args()
+
+    sensors = Sensors(args.water_pad, args.hand_pads, args.water_delta)
+    if args.sensor_test:
+        sensors.test()
+        return
+
+    for path, what in [(args.vad_model, "VAD model"), (args.voice, "Piper voice")]:
+        if not path.is_file():
+            sys.exit(f"{what} not found at {path}. Run ./setup.sh first.")
+    print("Loading models...", flush=True)
+    listener = Listener(args.vad_model, args.model, args.min_silence)
+    speaker = Speaker(args.voice)
+
+    if args.alarm_in:
+        print(f"Alarm in {args.alarm_in:.0f}s. Put the glass on the pad now.", flush=True)
+        time.sleep(args.alarm_in)
+    sensors.water_baseline = sensors.water_reading()  # baseline at the moment it fires
+    run(speaker, listener, sensors, args.speed)
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except KeyboardInterrupt:
+        print("\nStopped.")
