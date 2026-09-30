@@ -34,6 +34,8 @@ import soundfile as sf
 from faster_whisper import WhisperModel
 from piper import PiperVoice
 
+from alarm_policy import DAYS, make_policy
+
 SAMPLE_RATE = 16000
 LAB_DIR = Path(__file__).resolve().parent.parent
 DEFAULT_VAD = LAB_DIR / "models" / "silero_vad.onnx"
@@ -52,12 +54,6 @@ RUNGS = [
          offer="One minute. Then your hand on the device.", confirm="One minute."),
 ]
 GRACE = 30
-
-YES = {"yes", "yeah", "yep", "fine", "ok", "okay", "sure", "alright"}
-NUMBER_WORDS = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6,
-                "seven": 7, "eight": 8, "nine": 9, "ten": 10, "fifteen": 15,
-                "twenty": 20, "thirty": 30}
-DAYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
 
 
 # --- speech -----------------------------------------------------------------
@@ -115,33 +111,8 @@ class Listener:
         return None, None
 
 
-def is_yes(text) -> bool:
-    words = set(re.findall(r"[a-z']+", (text or "").lower()))
-    return bool(words & YES)
-
-
-def minutes_asked(text) -> int | None:
-    """First number in the utterance, as digits or a word, else None."""
-    if not text:
-        return None
-    m = re.search(r"\d+", text)
-    if m:
-        return int(m.group())
-    for w in re.findall(r"[a-z]+", text.lower()):
-        if w in NUMBER_WORDS:
-            return NUMBER_WORDS[w]
-    return None
-
-
 def spell(n: int) -> str:
-    return {v: k for k, v in NUMBER_WORDS.items()}.get(n, str(n))
-
-
-def said_day(text) -> str | None:
-    for d in DAYS:
-        if d in (text or "").lower():
-            return d
-    return None
+    return {1: "one", 2: "two", 3: "three", 4: "four", 5: "five"}.get(n, str(n))
 
 
 # --- sensors ----------------------------------------------------------------
@@ -201,85 +172,100 @@ def snooze(seconds: float, speed: float, until=None) -> bool:
     return False
 
 
-def run(speaker: Speaker, listener: Listener, sensors: Sensors,
+def run(speaker: Speaker, listener: Listener, sensors: Sensors, policy,
         speed: float, alarm_volume: float) -> None:
     today = DAYS[datetime.now().weekday()]
-    speaker.say(f"It's {datetime.now().strftime('%-I:%M')}.")
-    text, _ = listener.listen(OPEN_WAIT)
+    ctx = {"today": today}
+
+    def say(text):
+        if text:
+            speaker.say(text)
+            if hasattr(policy, "note"):
+                policy.note("device", text)
+
+    def hear(seconds, until=None):
+        text, samples = listener.listen(seconds, until=until)
+        if text and text != "<sensor>" and hasattr(policy, "note"):
+            policy.note("person", text)
+        return text, samples
+
+    say(f"It's {datetime.now().strftime('%-I:%M')}.")
+    text, _ = hear(OPEN_WAIT)
+    d = policy.decide("open", text, ctx)
+    say(d["reply"])
 
     # The first offer is the smaller of five minutes and what they asked for.
-    asked = minutes_asked(text)
-    first = min(MAX_FIRST_SNOOZE, asked) if asked else MAX_FIRST_SNOOZE
-    first = max(first, 1)
+    asked = d["minutes"]
+    first = max(1, min(MAX_FIRST_SNOOZE, asked)) if asked else MAX_FIRST_SNOOZE
+    unit = f"minute{'s' if first > 1 else ''}"
     RUNGS[0].update(snooze=first * 60,
-                    offer=f"{spell(first).capitalize()} minute{'s' if first > 1 else ''}. "
-                          "And you drink the water.",
-                    confirm=f"Recorded. {spell(first).capitalize()} "
-                            f"minute{'s' if first > 1 else ''}.")
+                    offer=f"{spell(first).capitalize()} {unit}. And you drink the water.",
+                    confirm=f"Recorded. {spell(first).capitalize()} {unit}.")
 
     for rung in RUNGS:
-        speaker.say(rung["offer"])
-        text, _ = listener.listen(rung["wait"])
-        if not is_yes(text):
-            continue  # silence or anything else: one rung down
+        ctx.update(task=rung["task"], offer=rung["offer"])
+        say(rung["offer"])
+        text, _ = hear(rung["wait"])
+        d = policy.decide("offer", text, ctx)
+        say(d["reply"])
+        if d["action"] == "task_done":          # said the right day at the offer
+            return say("You're awake. Good morning.")
+        if d["action"] != "accept":
+            continue                            # decline, silence, anything else
 
         if rung["task"] == "water":
-            speaker.say("Say it.")
-            text, samples = listener.listen(rung["wait"])
-            if not text or "water" not in text.lower():
+            say("Say it.")
+            text, samples = hear(rung["wait"])
+            d = policy.decide("promise", text, ctx)
+            say(d["reply"])
+            if d["action"] != "accept":
                 continue
             CLIPS_DIR.mkdir(exist_ok=True)
-            clip = CLIPS_DIR / f"{datetime.now():%Y%m%d_%H%M%S}.wav"
-            sf.write(clip, samples, SAMPLE_RATE)
-            speaker.say(rung["confirm"])
+            sf.write(CLIPS_DIR / f"{datetime.now():%Y%m%d_%H%M%S}.wav", samples, SAMPLE_RATE)
+            say(rung["confirm"])
             if snooze(rung["snooze"], speed, until=sensors.water_done):
-                speaker.say("You drank the water. Good morning.")
-                return
-            speaker.say("Did you drink the water?")
-            listener.listen(rung["wait"], until=sensors.water_done)
+                return say("You drank the water. Good morning.")
+            say("Did you drink the water?")
+            hear(rung["wait"], until=sensors.water_done)
             if sensors.water_done():
-                speaker.say("You drank the water. Good morning.")
-                return
+                return say("You drank the water. Good morning.")
             print("DEVICE: [plays back the promise]", flush=True)
             sd.play(samples, SAMPLE_RATE)
             sd.wait()
-            listener.listen(10, until=sensors.water_done)
+            hear(10, until=sensors.water_done)
             if sensors.water_done():
-                speaker.say("You drank the water. Good morning.")
-                return
-            speaker.say("I didn't get that.")
+                return say("You drank the water. Good morning.")
+            say("I didn't get that.")
 
         elif rung["task"] == "day":
-            speaker.say(rung["confirm"])
+            say(rung["confirm"])
             snooze(rung["snooze"], speed)
-            speaker.say("What day is it?")
-            text, _ = listener.listen(rung["wait"])
-            if said_day(text) == today:
-                speaker.say("You're awake. Good morning.")
-                return
-            speaker.say(f"It's {today.capitalize()}.")
+            say("What day is it?")
+            text, _ = hear(rung["wait"])
+            d = policy.decide("check_day", text, ctx)
+            say(d["reply"])
+            if d["action"] == "task_done":
+                return say("You're awake. Good morning.")
+            say(f"It's {today.capitalize()}.")
 
         elif rung["task"] == "hand":
-            speaker.say(rung["confirm"])
+            say(rung["confirm"])
             if snooze(rung["snooze"], speed, until=sensors.hand_done):
-                speaker.say("Good morning.")
-                return
-            speaker.say("Hand on the device.")
-            listener.listen(rung["wait"], until=sensors.hand_done)
+                return say("Good morning.")
+            say("Hand on the device.")
+            hear(rung["wait"], until=sensors.hand_done)
             if sensors.hand_done():
-                speaker.say("Good morning.")
-                return
+                return say("Good morning.")
 
     # Bottom of the ladder.
-    speaker.say("Thirty seconds.")
+    say("Thirty seconds.")
     if snooze(GRACE, speed, until=sensors.hand_done):
-        speaker.say("Good morning.")
-        return
+        return say("Good morning.")
     print("DEVICE: [ALARM] hand on the device or Ctrl-C to stop", flush=True)
     while not sensors.hand_done():
         beep(alarm_volume)
         time.sleep(0.15)
-    speaker.say("Good morning.")
+    say("Good morning.")
 
 
 def main() -> None:
@@ -294,6 +280,8 @@ def main() -> None:
     p.add_argument("--hand-pads", type=int, nargs="+", default=[6, 7, 8, 9, 10, 11])
     p.add_argument("--water-delta", type=int, default=30,
                    help="change in the water pad reading that counts as lifted")
+    p.add_argument("--policy", choices=["rules", "claude"], default="rules",
+                   help="dialogue policy: keyword rules, or Claude (needs ANTHROPIC_API_KEY)")
     p.add_argument("--alarm-volume", type=float, default=0.9,
                    help="beep amplitude 0 to 1 (use 0.1 in a room full of people)")
     p.add_argument("--sensor-test", action="store_true")
@@ -312,12 +300,14 @@ def main() -> None:
     print("Loading models...", flush=True)
     listener = Listener(args.vad_model, args.model, args.min_silence)
     speaker = Speaker(args.voice)
+    policy = make_policy(args.policy)
+    print(f"dialogue policy: {policy.name}", flush=True)
 
     if args.alarm_in:
         print(f"Alarm in {args.alarm_in:.0f}s. Put the glass on the pad now.", flush=True)
         time.sleep(args.alarm_in)
     sensors.water_baseline = sensors.water_reading()  # baseline at the moment it fires
-    run(speaker, listener, sensors, args.speed, args.alarm_volume)
+    run(speaker, listener, sensors, policy, args.speed, args.alarm_volume)
 
 
 if __name__ == "__main__":
