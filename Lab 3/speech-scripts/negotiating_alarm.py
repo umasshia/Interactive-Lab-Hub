@@ -160,16 +160,21 @@ def beep(volume: float, seconds: float = 0.3, freq: int = 880) -> None:
     sd.wait()
 
 
-def snooze(seconds: float, speed: float, until=None) -> bool:
-    """Silent, not listening. Polls `until` (a sensor check); True if it fired."""
+def snooze(seconds: float, speed: float, until=None, early_exit=True) -> bool:
+    """Silent, not listening. Polls `until` (a sensor check); True if it fired.
+    With early_exit=False the snooze always runs its full length and only
+    reports afterwards whether the sensor fired at any point."""
     seconds = seconds / speed
     print(f"        [snooze {seconds:.0f}s]", flush=True)
     end = time.monotonic() + seconds
+    fired = False
     while time.monotonic() < end:
         if until is not None and until():
-            return True
+            fired = True
+            if early_exit:
+                return True
         time.sleep(0.2)
-    return False
+    return fired
 
 
 def run(speaker: Speaker, listener: Listener, sensors: Sensors, policy,
@@ -223,7 +228,9 @@ def run(speaker: Speaker, listener: Listener, sensors: Sensors, policy,
             CLIPS_DIR.mkdir(exist_ok=True)
             sf.write(CLIPS_DIR / f"{datetime.now():%Y%m%d_%H%M%S}.wav", samples, SAMPLE_RATE)
             say(rung["confirm"])
-            if snooze(rung["snooze"], speed, until=sensors.water_done):
+            # The first snooze is a real snooze: silent for its full length,
+            # whatever happens. Only afterwards does it say anything.
+            if snooze(rung["snooze"], speed, until=sensors.water_done, early_exit=False):
                 return say("You drank the water. Good morning.")
             say("Did you drink the water?")
             hear(rung["wait"], until=sensors.water_done)
