@@ -42,9 +42,10 @@ CLIPS_DIR = Path(__file__).resolve().parent / "promises"
 
 # The ladder. Ten minutes is what I ask for, never what I get.
 OPEN_WAIT = 20
+MAX_FIRST_SNOOZE = 5  # minutes. Ask for less and you get what you asked for.
 RUNGS = [
     dict(task="water", snooze=5 * 60, wait=15,
-         offer="Five. And you drink the water.", confirm="Recorded. Five minutes."),
+         offer="Five minutes. And you drink the water.", confirm="Recorded. Five minutes."),
     dict(task="day", snooze=2 * 60, wait=10,
          offer="Two minutes. Then you tell me what day it is.", confirm="Two minutes."),
     dict(task="hand", snooze=60, wait=5,
@@ -53,6 +54,9 @@ RUNGS = [
 GRACE = 30
 
 YES = {"yes", "yeah", "yep", "fine", "ok", "okay", "sure", "alright"}
+NUMBER_WORDS = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6,
+                "seven": 7, "eight": 8, "nine": 9, "ten": 10, "fifteen": 15,
+                "twenty": 20, "thirty": 30}
 DAYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
 
 
@@ -116,6 +120,23 @@ def is_yes(text) -> bool:
     return bool(words & YES)
 
 
+def minutes_asked(text) -> int | None:
+    """First number in the utterance, as digits or a word, else None."""
+    if not text:
+        return None
+    m = re.search(r"\d+", text)
+    if m:
+        return int(m.group())
+    for w in re.findall(r"[a-z]+", text.lower()):
+        if w in NUMBER_WORDS:
+            return NUMBER_WORDS[w]
+    return None
+
+
+def spell(n: int) -> str:
+    return {v: k for k, v in NUMBER_WORDS.items()}.get(n, str(n))
+
+
 def said_day(text) -> str | None:
     for d in DAYS:
         if d in (text or "").lower():
@@ -162,9 +183,9 @@ class Sensors:
 
 # --- the alarm --------------------------------------------------------------
 
-def beep(seconds: float = 0.3, freq: int = 880) -> None:
+def beep(volume: float, seconds: float = 0.3, freq: int = 880) -> None:
     t = np.arange(int(seconds * 22050)) / 22050
-    sd.play((np.sign(np.sin(2 * np.pi * freq * t)) * 0.9).astype(np.float32), 22050)
+    sd.play((np.sign(np.sin(2 * np.pi * freq * t)) * volume).astype(np.float32), 22050)
     sd.wait()
 
 
@@ -180,10 +201,21 @@ def snooze(seconds: float, speed: float, until=None) -> bool:
     return False
 
 
-def run(speaker: Speaker, listener: Listener, sensors: Sensors, speed: float) -> None:
+def run(speaker: Speaker, listener: Listener, sensors: Sensors,
+        speed: float, alarm_volume: float) -> None:
     today = DAYS[datetime.now().weekday()]
     speaker.say(f"It's {datetime.now().strftime('%-I:%M')}.")
-    listener.listen(OPEN_WAIT)  # whatever they say, the counter-offer is the same
+    text, _ = listener.listen(OPEN_WAIT)
+
+    # The first offer is the smaller of five minutes and what they asked for.
+    asked = minutes_asked(text)
+    first = min(MAX_FIRST_SNOOZE, asked) if asked else MAX_FIRST_SNOOZE
+    first = max(first, 1)
+    RUNGS[0].update(snooze=first * 60,
+                    offer=f"{spell(first).capitalize()} minute{'s' if first > 1 else ''}. "
+                          "And you drink the water.",
+                    confirm=f"Recorded. {spell(first).capitalize()} "
+                            f"minute{'s' if first > 1 else ''}.")
 
     for rung in RUNGS:
         speaker.say(rung["offer"])
@@ -245,7 +277,7 @@ def run(speaker: Speaker, listener: Listener, sensors: Sensors, speed: float) ->
         return
     print("DEVICE: [ALARM] hand on the device or Ctrl-C to stop", flush=True)
     while not sensors.hand_done():
-        beep()
+        beep(alarm_volume)
         time.sleep(0.15)
     speaker.say("Good morning.")
 
@@ -262,6 +294,8 @@ def main() -> None:
     p.add_argument("--hand-pads", type=int, nargs="+", default=[6, 7, 8, 9, 10, 11])
     p.add_argument("--water-delta", type=int, default=30,
                    help="change in the water pad reading that counts as lifted")
+    p.add_argument("--alarm-volume", type=float, default=0.9,
+                   help="beep amplitude 0 to 1 (use 0.1 in a room full of people)")
     p.add_argument("--sensor-test", action="store_true")
     p.add_argument("--vad-model", type=Path, default=DEFAULT_VAD)
     p.add_argument("--voice", type=Path, default=DEFAULT_VOICE)
@@ -283,7 +317,7 @@ def main() -> None:
         print(f"Alarm in {args.alarm_in:.0f}s. Put the glass on the pad now.", flush=True)
         time.sleep(args.alarm_in)
     sensors.water_baseline = sensors.water_reading()  # baseline at the moment it fires
-    run(speaker, listener, sensors, args.speed)
+    run(speaker, listener, sensors, args.speed, args.alarm_volume)
 
 
 if __name__ == "__main__":
