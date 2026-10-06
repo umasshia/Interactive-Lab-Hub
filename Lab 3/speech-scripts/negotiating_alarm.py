@@ -115,8 +115,10 @@ class Sensors:
     """Wraps the MPR121. If the board is missing, every check reports 'not done'
     and the alarm still runs, so the dialogue can be tested on its own."""
 
-    def __init__(self, water_pad: int, hand_pads: list[int], water_delta: int) -> None:
+    def __init__(self, water_pad: int, hand_pads: list[int], water_delta: int,
+                 bed_pad: int = 1) -> None:
         self.water_pad, self.hand_pads, self.water_delta = water_pad, hand_pads, water_delta
+        self.bed_pad = bed_pad
         self.cap = None
         try:
             import board, busio, adafruit_mpr121
@@ -141,8 +143,9 @@ class Sensors:
               f"delta needed {self.water_delta}. Ctrl-C to stop.")
         while True:
             hand = [i for i in self.hand_pads if self.cap[i].value] if self.cap else []
+            bed = self.cap.filtered_data(self.bed_pad) if self.cap else 0
             print(f"water {self.water_reading():4d}  done={self.water_done()!s:5}  "
-                  f"hand touched {hand}", flush=True)
+                  f"bed {bed:4d}  hand touched {hand}", flush=True)
             time.sleep(0.25)
 
 
@@ -281,6 +284,8 @@ def main() -> None:
     p.add_argument("--min-silence", type=float, default=0.8)
     p.add_argument("--water-pad", type=int, default=0)
     p.add_argument("--hand-pads", type=int, nargs="+", default=[6, 7, 8, 9, 10, 11])
+    p.add_argument("--bed-pad", type=int, default=1,
+                   help="pad wired to the copper strip in the bed")
     p.add_argument("--water-delta", type=int, default=30,
                    help="change in the water pad reading that counts as lifted")
     p.add_argument("--policy", choices=["rules", "claude"], default="rules",
@@ -292,7 +297,7 @@ def main() -> None:
     p.add_argument("--voice", type=Path, default=DEFAULT_VOICE)
     args = p.parse_args()
 
-    sensors = Sensors(args.water_pad, args.hand_pads, args.water_delta)
+    sensors = Sensors(args.water_pad, args.hand_pads, args.water_delta, args.bed_pad)
     if args.sensor_test:
         sensors.test()
         return
