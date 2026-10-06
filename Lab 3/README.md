@@ -176,7 +176,10 @@ DEVICE:  6:45. You still owe me the water. That's first tomorrow.
 
 ## E. Acting out the dialogue
 
-**Recording:** to do.
+**Recording:** 
+
+https://github.com/user-attachments/assets/9298a63a-34f8-49ea-b9be-eb7b9c311e3d
+
 
 **Describe if the dialogue seemed different than what you imagined when it was acted out, and how.**
 
