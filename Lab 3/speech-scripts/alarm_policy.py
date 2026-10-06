@@ -60,7 +60,10 @@ class RulesPolicy:
     def decide(self, stage, heard, ctx):
         words = set(re.findall(r"[a-z']+", (heard or "").lower()))
         if stage == "open":
-            return {"action": "other", "minutes": minutes_asked(heard), "reply": ""}
+            m = minutes_asked(heard)
+            if m is None and words & {"more", "longer", "snooze", "time"}:
+                m = 5
+            return {"action": "other", "minutes": m, "reply": ""}
         if stage == "promise":
             ok = bool(heard) and "water" in heard.lower()
             return {"action": "accept" if ok else "other", "minutes": None, "reply": ""}
@@ -93,8 +96,17 @@ Actions:
   task_done  they completed the task in speech (said the correct day)
   other      anything else: unrelated talk, mumbling, a different request
 
-At stage "open" also fill "minutes" with how long they asked for, if they
-asked. At other stages leave it null.
+Stages:
+  open       the alarm is beeping and has told them they can ask for more
+             time. Fill "minutes" with how long they asked for, as a number,
+             if they asked for any amount of time at all ("a bit longer" means
+             5). If they did not ask for time, minutes is null and your reply
+             should nudge them, e.g. "Ask for time, or get up."
+  promise    the device stated a deal and told them to repeat it back.
+             "accept" only if they repeated the deal back: the time and the
+             water. "okay" or "fine" alone is not repeating it.
+  check_day  they were asked what day it is.
+At stages other than open, leave "minutes" null.
 
 Examples of reaction lines: "Not ten.", "Good.", "That's not a yes.",
 "Wednesday. Correct.", "It's not Monday.", "Still here.", ""."""

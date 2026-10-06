@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 """The Negotiating Alarm, Lab 3 Part 2.
 
-An alarm that never grants a snooze outright. It counters with less time plus
-one small task, records my promise, and plays it back if I do not follow
-through. Each rung halves the snooze and shortens how long it waits for an
-answer. Silence, or anything it cannot map, moves one rung down.
+The alarm beeps and tells you straight away that you can ask it for more time.
+You get at most five minutes, and only if you repeat the deal back: "N minutes,
+then I drink the water". Until you repeat it, the beeping continues. The snooze
+itself is silent. If the glass has not moved by the end, the device plays your
+own promise back to you and then keeps asking (what day is it, hand on the
+device) until one task is done. No more snoozes.
 
     python negotiating_alarm.py                  # alarm fires now, real timings
     python negotiating_alarm.py --speed 20       # snoozes 20x shorter, for demos
@@ -34,7 +36,7 @@ import soundfile as sf
 from faster_whisper import WhisperModel
 from piper import PiperVoice
 
-from alarm_policy import DAYS, make_policy
+from alarm_policy import DAYS, NUMBER_WORDS, make_policy
 
 SAMPLE_RATE = 16000
 LAB_DIR = Path(__file__).resolve().parent.parent
@@ -42,18 +44,10 @@ DEFAULT_VAD = LAB_DIR / "models" / "silero_vad.onnx"
 DEFAULT_VOICE = LAB_DIR / "voices" / "en_US-lessac-medium.onnx"
 CLIPS_DIR = Path(__file__).resolve().parent / "promises"
 
-# The ladder. Ten minutes is what I ask for, never what I get.
-OPEN_WAIT = 20
-MAX_FIRST_SNOOZE = 5  # minutes. Ask for less and you get what you asked for.
-RUNGS = [
-    dict(task="water", snooze=5 * 60, wait=15,
-         offer="Five minutes. And you drink the water.", confirm="Recorded. Five minutes."),
-    dict(task="day", snooze=2 * 60, wait=10,
-         offer="Two minutes. Then you tell me what day it is.", confirm="Two minutes."),
-    dict(task="hand", snooze=60, wait=5,
-         offer="One minute. Then your hand on the device.", confirm="One minute."),
-]
-GRACE = 30
+# Timings, all in seconds except MAX_SNOOZE.
+ALARM_LISTEN = 6   # how long it listens between rounds of beeping
+ANSWER_WAIT = 15   # how long it waits for the deal to be repeated back
+MAX_SNOOZE = 5     # minutes. Ask for less and you get what you asked for.
 
 
 # --- speech -----------------------------------------------------------------
@@ -112,7 +106,7 @@ class Listener:
 
 
 def spell(n: int) -> str:
-    return {1: "one", 2: "two", 3: "three", 4: "four", 5: "five"}.get(n, str(n))
+    return {v: k for k, v in NUMBER_WORDS.items()}.get(n, str(n))
 
 
 # --- sensors ----------------------------------------------------------------
@@ -180,7 +174,7 @@ def snooze(seconds: float, speed: float, until=None, early_exit=True) -> bool:
 def run(speaker: Speaker, listener: Listener, sensors: Sensors, policy,
         speed: float, alarm_volume: float) -> None:
     today = DAYS[datetime.now().weekday()]
-    ctx = {"today": today}
+    ctx = {"today": today, "task": "water"}
 
     def say(text):
         if text:
@@ -194,85 +188,87 @@ def run(speaker: Speaker, listener: Listener, sensors: Sensors, policy,
             policy.note("person", text)
         return text, samples
 
-    say(f"It's {datetime.now().strftime('%-I:%M')}.")
-    text, _ = hear(OPEN_WAIT)
-    d = policy.decide("open", text, ctx)
-    say(d["reply"])
+    def beeps(n=3):
+        for _ in range(n):
+            beep(alarm_volume)
+            time.sleep(0.15)
 
-    # The first offer is the smaller of five minutes and what they asked for.
-    asked = d["minutes"]
-    first = max(1, min(MAX_FIRST_SNOOZE, asked)) if asked else MAX_FIRST_SNOOZE
-    unit = f"minute{'s' if first > 1 else ''}"
-    RUNGS[0].update(snooze=first * 60,
-                    offer=f"{spell(first).capitalize()} {unit}. And you drink the water.",
-                    confirm=f"Recorded. {spell(first).capitalize()} {unit}.")
+    def done(line="Good morning."):
+        say(line)
 
-    for rung in RUNGS:
-        ctx.update(task=rung["task"], offer=rung["offer"])
-        say(rung["offer"])
-        text, _ = hear(rung["wait"])
-        d = policy.decide("offer", text, ctx)
-        say(d["reply"])
-        if d["action"] == "task_done":          # said the right day at the offer
-            return say("You're awake. Good morning.")
-        if d["action"] != "accept":
-            continue                            # decline, silence, anything else
+    # 1. ALARM. Beep, and invite them to talk straight away: in Part E nobody
+    #    knew the device listened, so the invitation is part of the alarm.
+    say_time = True
+    while True:
+        beeps()
+        if sensors.water_done():
+            return done("You drank the water. Good morning.")
+        say(f"It's {datetime.now().strftime('%-I:%M')}. Ask me for more time."
+            if say_time else "Ask me for more time.")
+        say_time = False
+        text, _ = hear(ALARM_LISTEN, until=sensors.water_done)
+        if text == "<sensor>" or sensors.water_done():
+            return done("You drank the water. Good morning.")
+        d = policy.decide("open", text, ctx)
+        if d["minutes"]:
+            break
+        say(d["reply"])  # talked, but did not ask for time: keep beeping
 
-        if rung["task"] == "water":
-            say("Say it.")
-            text, samples = hear(rung["wait"])
-            d = policy.decide("promise", text, ctx)
-            say(d["reply"])
-            if d["action"] != "accept":
-                continue
-            CLIPS_DIR.mkdir(exist_ok=True)
-            sf.write(CLIPS_DIR / f"{datetime.now():%Y%m%d_%H%M%S}.wav", samples, SAMPLE_RATE)
-            say(rung["confirm"])
-            # The first snooze is a real snooze: silent for its full length,
-            # whatever happens. Only afterwards does it say anything.
-            if snooze(rung["snooze"], speed, until=sensors.water_done, early_exit=False):
-                return say("You drank the water. Good morning.")
-            say("Did you drink the water?")
-            hear(rung["wait"], until=sensors.water_done)
-            if sensors.water_done():
-                return say("You drank the water. Good morning.")
-            print("DEVICE: [plays back the promise]", flush=True)
-            sd.play(samples, SAMPLE_RATE)
-            sd.wait()
-            hear(10, until=sensors.water_done)
-            if sensors.water_done():
-                return say("You drank the water. Good morning.")
-            say("I didn't get that.")
+    # 2. THE DEAL. Never more than MAX_SNOOZE minutes, always for the water.
+    minutes = max(1, min(MAX_SNOOZE, d["minutes"]))
+    unit = f"minute{'s' if minutes > 1 else ''}"
+    deal = f"{spell(minutes).capitalize()} {unit}. Then you drink the water."
+    if d["minutes"] > MAX_SNOOZE:
+        deal = f"Not {spell(d['minutes'])}. " + deal
+    ctx["offer"] = deal
+    say(deal + " Repeat it back to me.")
 
-        elif rung["task"] == "day":
-            say(rung["confirm"])
-            snooze(rung["snooze"], speed)
-            say("What day is it?")
-            text, _ = hear(rung["wait"])
-            d = policy.decide("check_day", text, ctx)
-            say(d["reply"])
-            if d["action"] == "task_done":
-                return say("You're awake. Good morning.")
-            say(f"It's {today.capitalize()}.")
+    # 3. REPEAT IT BACK, or the beeping continues. Their words are the promise.
+    while True:
+        text, samples = hear(ANSWER_WAIT, until=sensors.water_done)
+        if text == "<sensor>" or sensors.water_done():
+            return done("You drank the water. Good morning.")
+        d = policy.decide("promise", text, ctx)
+        if d["action"] == "accept":
+            break
+        beeps()
+        say("Repeat it back to me.")
+    CLIPS_DIR.mkdir(exist_ok=True)
+    sf.write(CLIPS_DIR / f"{datetime.now():%Y%m%d_%H%M%S}.wav", samples, SAMPLE_RATE)
+    promise = samples
+    say("Recorded.")
 
-        elif rung["task"] == "hand":
-            say(rung["confirm"])
-            if snooze(rung["snooze"], speed, until=sensors.hand_done):
-                return say("Good morning.")
-            say("Hand on the device.")
-            hear(rung["wait"], until=sensors.hand_done)
-            if sensors.hand_done():
-                return say("Good morning.")
+    # 4. SNOOZE. Silent for its full length, whatever happens.
+    if snooze(minutes * 60, speed, until=sensors.water_done, early_exit=False):
+        return done("You drank the water. Good morning.")
 
-    # Bottom of the ladder.
-    say("Thirty seconds.")
-    if snooze(GRACE, speed, until=sensors.hand_done):
-        return say("Good morning.")
+    # 5. BUGGING. The deal is broken: no more snoozes, just tasks until one is done.
+    say("You didn't drink the water.")
+    print("DEVICE: [plays back the promise]", flush=True)
+    sd.play(promise, SAMPLE_RATE)
+    sd.wait()
+    hear(10, until=sensors.water_done)
+    if sensors.water_done():
+        return done()
+
+    ctx["task"] = "day"
+    say("What day is it?")
+    text, _ = hear(10)
+    d = policy.decide("check_day", text, ctx)
+    if d["action"] == "task_done":
+        return done("Correct. Good morning.")
+    if text:
+        say("It's not.")
+
+    say("Hand on the device.")
+    hear(5, until=sensors.hand_done)
+    if sensors.hand_done():
+        return done()
     print("DEVICE: [ALARM] hand on the device or Ctrl-C to stop", flush=True)
     while not sensors.hand_done():
         beep(alarm_volume)
         time.sleep(0.15)
-    say("Good morning.")
+    done()
 
 
 def main() -> None:
