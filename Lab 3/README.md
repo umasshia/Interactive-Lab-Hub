@@ -46,13 +46,13 @@ For me the line is at base.en. Going from tiny to base cost about one extra seco
 
 Three runs:
 
-| question | I said | heard | digits |
-|---|---|---|---|
-| zip code | one one two three four | `One, one, two, three, four.` | none |
-| zip code | one two three four five | `1, 2, 3, 4, 5.` | 12345 |
-| phone number | 917 550 7533, in groups | `917 550 753 3` | 9175507533 |
+| question | heard | digits extracted |
+|---|---|---|
+| zip code | `One, one, two, three, four.` | none |
+| zip code | `1, 2, 3, 4, 5.` | 12345 |
+| phone number, said in groups | `917 550 753 3` | 9175507533, all correct |
 
-Two characteristic errors showed up. In the first run whisper wrote the digits as words, so the digit filter found nothing, and the same words came back as digits on the next run. In the phone number run every digit was right but the grouping was not, so a device reading it back would sound wrong while being right.
+Two characteristic errors showed up. In the first run whisper wrote the numbers as words, so the digit filter found nothing, while in the second run it wrote them as digits. In the phone number run every digit was right but the grouping was not, so a device reading it back would sound wrong while being right.
 
 ## C. Turn-taking
 
@@ -176,18 +176,19 @@ DEVICE:  6:45. You still owe me the water. That's first tomorrow.
 
 ## E. Acting out the dialogue
 
-**Recording:** 
+I played the device, crouched behind the chair that stood in for the nightstand, and a friend played the sleeper on the couch without having seen the script. Before recording I revised the Part D script for acting: the alarm beeps first, the sleeper asks for more time instead of the device opening the negotiation, they have to repeat the deal back or the beeping continues, and after 20 seconds of silence the device hints that they can ask for more time.
+
+**Recording:**
 
 https://github.com/user-attachments/assets/9298a63a-34f8-49ea-b9be-eb7b9c311e3d
 
-
 **Describe if the dialogue seemed different than what you imagined when it was acted out, and how.**
 
-To do.
+After the beeping, right away the participant stood up and drank the water. Then I replied, "You drank the water. Thank you. Good morning." And he went back on the couch. This tells me there's no actual way right now that the device communicates that it can interact with you, or invites it. Also, the user can just go back to sleep after drinking the water or turning off the alarm.
 
 ---
 
-The idea, the storyboard panels, the dialogue script, and all written answers are mine. The storyboard drawing was generated with AI from my panel descriptions. I used Claude to write the greeting and number-asking scripts and to proofread my writing.
+The idea, the storyboard panels, the dialogue script, and the substance of all written answers are mine. The storyboard drawing was generated with AI from my panel descriptions. I used Claude to write the greeting and number-asking scripts, to turn my spoken notes for Parts A to C into written answers that I approved, to proofread my writing, and to help revise the script for acting out in Part E. The Part E reflection is my own writing, with only typos fixed.
 
 ---
 
