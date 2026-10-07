@@ -46,6 +46,7 @@ CLIPS_DIR = Path(__file__).resolve().parent / "promises"
 
 # Timings, all in seconds except MAX_SNOOZE.
 ALARM_LISTEN = 6   # how long it listens between rounds of beeping
+LIFT_HOLD = 1.0    # the glass must be off the pad this long to count
 ANSWER_WAIT = 15   # how long it waits for the deal to be repeated back
 MAX_SNOOZE = 5     # minutes. Ask for less and you get what you asked for.
 
@@ -126,17 +127,81 @@ class Sensors:
         except Exception as e:  # noqa: BLE001
             print(f"WARNING: no MPR121 ({e}); sensor checks will always be 'not done'")
         time.sleep(0.3)  # the chip's first reading after wake-up is 0
-        self.water_baseline = self.water_reading()
+        self.reset_water()
 
     def water_reading(self) -> int:
         return self.cap.filtered_data(self.water_pad) if self.cap else 0
 
+    def reset_water(self) -> None:
+        """Call with the glass sitting on the pad. Lifting is measured from here."""
+        self.water_baseline = self.water_reading()
+        self._above_since = None
+        self._lifted = False
+
     def water_done(self) -> bool:
-        return self.cap is not None and \
-            abs(self.water_reading() - self.water_baseline) > self.water_delta
+        """True once the glass has been off the pad for LIFT_HOLD seconds.
+
+        Measured on the bench: lifting the glass RAISES the reading by ~20,
+        while a hand on the glass LOWERS it by ~40. So only a sustained rise
+        counts; touching or tapping the glass does not. Once lifted, it stays
+        done, since putting the glass back after drinking is expected."""
+        if self.cap is None:
+            return False
+        if self._lifted:
+            return True
+        if self.water_reading() - self.water_baseline >= self.water_delta:
+            if self._above_since is None:
+                self._above_since = time.monotonic()
+            elif time.monotonic() - self._above_since >= LIFT_HOLD:
+                self._lifted = True
+        else:
+            self._above_since = None
+        return self._lifted
 
     def hand_done(self) -> bool:
         return self.cap is not None and any(self.cap[i].value for i in self.hand_pads)
+
+    def _sample(self, seconds: float = 3.0) -> tuple[float, int, int]:
+        vals = []
+        end = time.monotonic() + seconds
+        while time.monotonic() < end:
+            vals.append(self.water_reading())
+            time.sleep(0.05)
+        return sum(vals) / len(vals), min(vals), max(vals)
+
+    def calibrate(self) -> None:
+        """Guided measurement of the water pad. Each step: set it up, press
+        Enter, keep still for three seconds while it measures."""
+        steps = [
+            ("on", "Put the glass ON the pad. Take your hands away."),
+            ("lifted", "Lift the glass and hold it in the air, about 20 cm above the pad."),
+            ("touch", "Put the glass back ON the pad and keep your hand wrapped around it."),
+            ("on_again", "Take your hand away. Leave the glass ON the pad."),
+            ("away", "Move the glass off the pad onto the bare desk, hands away."),
+        ]
+        results = {}
+        print("Water pad calibration. Follow each step, then press Enter.\n")
+        for key, instruction in steps:
+            input(f"{instruction}\n  Press Enter when ready... ")
+            print("  measuring, keep still...", flush=True)
+            results[key] = self._sample()
+            mean, lo, hi = results[key]
+            print(f"  {key:9s} mean {mean:6.1f}   range {lo}-{hi}\n", flush=True)
+
+        on = (results["on"][0] + results["on_again"][0]) / 2
+        print("Summary, relative to glass on the pad:")
+        for key in ["lifted", "away", "touch"]:
+            print(f"  {key:9s} {results[key][0] - on:+6.1f}")
+        lift = min(results["lifted"][0], results["away"][0]) - on
+        noise = max(hi - lo for _, lo, hi in results.values())
+        print(f"\n  smallest lift signal {lift:+.1f}, worst noise band {noise}")
+        if lift <= 0:
+            print("  Lifting does not raise the reading. Paste this to Claude.")
+        else:
+            print(f"  suggested --water-delta {max(1, round(lift / 2))}"
+                  f" (half the lift signal; current {self.water_delta})")
+        if results["touch"][0] - on >= lift / 2 > 0:
+            print("  WARNING: a hand on the glass also looks like a lift.")
 
     def test(self) -> None:
         print(f"water pad {self.water_pad} baseline {self.water_baseline}, "
@@ -286,8 +351,11 @@ def main() -> None:
     p.add_argument("--hand-pads", type=int, nargs="+", default=[6, 7, 8, 9, 10, 11])
     p.add_argument("--bed-pad", type=int, default=1,
                    help="pad wired to the copper strip in the bed")
-    p.add_argument("--water-delta", type=int, default=30,
-                   help="change in the water pad reading that counts as lifted")
+    p.add_argument("--water-delta", type=int, default=12,
+                   help="rise in the water pad reading that counts as lifted "
+                        "(run --calibrate to measure yours)")
+    p.add_argument("--calibrate", action="store_true",
+                   help="guided measurement of the water pad, no dialogue")
     p.add_argument("--policy", choices=["rules", "claude"], default="rules",
                    help="dialogue policy: keyword rules, or Claude (needs ANTHROPIC_API_KEY)")
     p.add_argument("--alarm-volume", type=float, default=0.9,
@@ -298,6 +366,9 @@ def main() -> None:
     args = p.parse_args()
 
     sensors = Sensors(args.water_pad, args.hand_pads, args.water_delta, args.bed_pad)
+    if args.calibrate:
+        sensors.calibrate()
+        return
     if args.sensor_test:
         sensors.test()
         return
@@ -314,7 +385,7 @@ def main() -> None:
     if args.alarm_in:
         print(f"Alarm in {args.alarm_in:.0f}s. Put the glass on the pad now.", flush=True)
         time.sleep(args.alarm_in)
-    sensors.water_baseline = sensors.water_reading()  # baseline at the moment it fires
+    sensors.reset_water()  # glass on the pad when the alarm fires
     run(speaker, listener, sensors, policy, args.speed, args.alarm_volume)
 
 
