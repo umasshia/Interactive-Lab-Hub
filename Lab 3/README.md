@@ -214,11 +214,11 @@ The device sits on my desk across the room from my bed, next to a glass of water
 
 **What it does, in order**
 
-1. **Alarm.** It beeps, says the time, and says "Ask me for more time." In Part E nobody knew the device could be spoken to, so the invitation is now part of the alarm itself.
-2. **The deal.** If I ask for time, it offers at most five minutes, in exchange for drinking the water: "Not ten. Five minutes. Then you drink the water. Repeat it back to me." If I talk without asking for time, it nudges me and keeps beeping.
-3. **Repeat it back.** A plain "okay" is not enough. I have to say the time and the water back to it, and until I do, it keeps beeping. That repeated sentence is recorded as my promise.
+1. **Alarm.** It beeps, says "Good morning. It's 6:45.", and waits. If I say nothing, it beeps again and asks "Do you need more time?" In Part E nobody knew the device could be spoken to, so the device now asks the question itself instead of waiting to be asked.
+2. **The deal.** If I ask for time, or just say "yeah", it offers at most five minutes, in exchange for drinking the water: "Ten is a lot. I'll give you five minutes, and then you drink that water. Say that back to me." If I talk without asking for time, it asks whether I want more time or am getting up.
+3. **Say it back.** A plain "okay" is not enough ("I need to hear you say it."). I have to say the time and the water back to it. That sentence is recorded as my promise: "Okay. I'm holding you to that."
 4. **Snooze.** Silent for the full time, whatever happens.
-5. **Bugging.** If the glass has not been drunk from, the snooze is over for good. It plays my own recorded promise back to me, asks what day it is, then asks for a hand on the device, and goes back to beeping if all of those fail. Drinking the water at any point ends the alarm.
+5. **Bugging.** If the glass has not been drunk from, the snooze is over for good: "Time's up, and that glass hasn't moved. Remember this?", and it plays my own recorded promise back to me. Then it asks what day it is, then "Last chance. Put your hand on me and I'll stop.", and goes back to beeping if all of those fail. Drinking the water at any point ends the alarm.
 
 **Sensors**
 
@@ -230,14 +230,14 @@ The device sits on my desk across the room from my bed, next to a glass of water
 
 - **Listening:** Silero voice activity detection decides when I have stopped talking, and faster-whisper (base.en) transcribes on the Pi. Base was the smallest model that got my own speech right in Part 1.
 - **Understanding:** each transcript goes to a dialogue policy, which decides what I meant (asked for time, repeated the deal, refused, said the right day) and gives the device a short reaction line. There are two policies: simple keyword rules, and Claude (`claude-opus-5-5`) with a persona file, [`alarm_persona.md`](speech-scripts/alarm_persona.md), that describes the alarm's character. The program, not the model, owns the timings, the snooze length and the sensors, so the model can react but cannot give me more time.
-- **Speaking:** Piper text-to-speech, on the Pi.
+- **Speaking:** OpenAI text-to-speech (`gpt-4o-mini-tts`, voice "marin", with the delivery instruction "Speak like a dry, unhurried hotel concierge. Deadpan, quietly amused."). I compared five voices with and without that instruction and picked this one by ear. Piper, which runs on the Pi, sounded too robotic for the character. Every fixed line is generated once in the background at startup and cached on the Pi, so only Claude's live reactions need a network request. If OpenAI can't be reached, the device falls back to Piper rather than going silent.
 
 **Running it**
 
 ```
-python negotiating_alarm.py --policy claude            # real timings
-python negotiating_alarm.py --policy claude --speed 20 # snoozes 20x shorter, for demos
-python negotiating_alarm.py --calibrate                # measure the water pad
+python negotiating_alarm.py --policy claude --tts openai             # real timings
+python negotiating_alarm.py --policy claude --tts openai --speed 10  # snoozes 10x shorter, for demos
+python negotiating_alarm.py --calibrate                              # measure the water pad
 ```
 
 **Video of the system:**
