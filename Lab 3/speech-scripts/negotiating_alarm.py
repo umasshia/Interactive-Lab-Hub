@@ -351,7 +351,7 @@ def main() -> None:
     p.add_argument("--hand-pads", type=int, nargs="+", default=[6, 7, 8, 9, 10, 11])
     p.add_argument("--bed-pad", type=int, default=1,
                    help="pad wired to the copper strip in the bed")
-    p.add_argument("--water-delta", type=int, default=12,
+    p.add_argument("--water-delta", type=int, default=14,
                    help="rise in the water pad reading that counts as lifted "
                         "(run --calibrate to measure yours)")
     p.add_argument("--calibrate", action="store_true",
