@@ -130,7 +130,10 @@ class OpenAISpeaker:
                     audio += chunk[:cut]
                     pending = chunk[cut:]
         except Exception as e:  # noqa: BLE001
-            print(f"        [openai tts failed ({type(e).__name__}); using piper]", flush=True)
+            # The provider's message says why (e.g. no credit); it never contains the key.
+            detail = " ".join(str(getattr(e, "message", e)).split())[:160]
+            print(f"        [openai tts failed ({type(e).__name__}: {detail}); using piper]",
+                  flush=True)
             if not audio:
                 self.fallback.speak_only(text)
             return
