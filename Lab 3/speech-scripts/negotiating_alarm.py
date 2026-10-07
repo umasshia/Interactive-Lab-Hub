@@ -49,9 +49,8 @@ CLIPS_DIR = Path(__file__).resolve().parent / "promises"
 TTS_CACHE = Path(__file__).resolve().parent / "tts_cache"
 
 OPENAI_TTS_MODEL = "gpt-4o-mini-tts"
-OPENAI_STYLE = ("Speak like a dry, unhurried hotel concierge who has heard every "
-                "excuse and finds this mildly entertaining. Deadpan, low energy, "
-                "quietly amused. Never cheerful, never rushed.")
+OPENAI_STYLE = "Speak like a dry, unhurried hotel concierge. Deadpan, quietly amused."
+# Chosen by ear on 2026-10-06: five voices, with and without this style.
 
 # Timings, all in seconds except MAX_SNOOZE.
 ALARM_LISTEN = 8   # how long it waits for an answer between rounds of beeping
@@ -96,7 +95,7 @@ class OpenAISpeaker:
 
     RATE = 24000
 
-    def __init__(self, voice: str, style: str, fallback: "Speaker", gain: float = 2.0) -> None:
+    def __init__(self, voice: str, style: str, fallback: "Speaker", gain: float = 3.0) -> None:
         from openai import OpenAI  # only needed with --tts openai
         if not os.environ.get("OPENAI_API_KEY"):
             raise RuntimeError("OPENAI_API_KEY is not set")
@@ -567,9 +566,9 @@ def main() -> None:
                    help="guided measurement of the water pad, no dialogue")
     p.add_argument("--tts", choices=["piper", "openai"], default="piper",
                    help="voice engine: Piper on the Pi, or OpenAI (needs OPENAI_API_KEY)")
-    p.add_argument("--voice-gain", type=float, default=2.0,
+    p.add_argument("--voice-gain", type=float, default=3.0,
                    help="loudness boost for the OpenAI voice (1 = as delivered)")
-    p.add_argument("--openai-voice", default="cedar",
+    p.add_argument("--openai-voice", default="marin",
                    help="OpenAI voice, e.g. cedar, marin, ash, onyx, sage")
     p.add_argument("--policy", choices=["rules", "claude"], default="rules",
                    help="dialogue policy: keyword rules, or Claude (needs ANTHROPIC_API_KEY)")
