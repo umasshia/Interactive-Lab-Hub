@@ -198,15 +198,15 @@ The idea, the storyboard panels, the dialogue script, and the substance of all w
 
 **1. What could be improved in the design?**
 
-To do.
+After acting it out, the biggest problem was that there was no way to confirm the person actually did anything. It also was not clear that you could talk to the device at all. The pauses were too long, and in my first prototype the line "Ask me for more time" was worded badly and sounded unnatural.
 
 **2. Beyond speech: how does someone know when the device is listening, and when it is thinking?**
 
-To do.
+If the device says something inviting and then stops, especially if it ends on a question, you can assume it is listening. I don't think a light or a screen would help much with showing that it is thinking, because the person is half asleep and won't be processing things quickly either, so a few seconds of delay won't stand out. The beeping already does the most important job, which is telling you it is time to wake up.
 
 **3. New storyboard, diagram or script**
 
-To do.
+The new script is the step-by-step flow under "Prototype: how the system works" below, with the device's actual lines. The main changes from the Part D script: the device now opens the conversation and asks "Do you need more time?" instead of waiting to be asked, the person has to say the deal back before the snooze starts, the snooze is silent, and the water task is checked with a sensor instead of being taken on trust.
 
 ## Prototype: how the system works
 
@@ -259,3 +259,7 @@ To do.
 
 ### How could you use your system to create a dataset of interaction? What other sensing modalities would make sense to capture?
 To do.
+
+---
+
+**Part 2 AI use.** The device design and the findings are mine. I used Claude (Claude Code) to write the device's code: the alarm flow, the sensor handling and calibration, and the dialogue policy. Claude also wrote up "how the system works" from the code, and wrote my prep answers 1 and 2 from what I told it, which I reviewed and approved. Inside the device, Claude (`claude-opus-5-5`) interprets what the person says, and OpenAI's `gpt-4o-mini-tts` speaks the device's lines.
