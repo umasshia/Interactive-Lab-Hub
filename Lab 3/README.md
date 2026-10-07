@@ -255,11 +255,11 @@ To do.
 To do.
 
 ### What lessons can you take away from the WoZ interactions for designing a more autonomous version of the system?
-To do.
+When I acted it out, my partner got up right away, drank the water, and went back to the couch without ever talking to the device. Two lessons came out of that. First, the device has to invite the conversation itself, because nothing about an alarm tells you it can listen, so the autonomous version asks "Do you need more time?" instead of waiting to be asked. Second, it can't take the person's word for anything. It needs sensors to confirm the task was actually done, and ideally to notice when someone goes back to bed after the alarm stops. I tried copper tape on the bed for that and it didn't work, so a bed pressure pad is what I'd add next.
 
 ### How could you use your system to create a dataset of interaction? What other sensing modalities would make sense to capture?
-To do.
+The device already measures the glass: when it was lifted, for how long, and when someone fakes it by putting it straight back down. Recorded over many mornings, that would show how long it actually takes me to get up and whether the water task works. The other sensor I'd add is a bed pressure pad, which would show when I get out of bed and whether I get back in. That data could also feed back into the device itself, so it keeps going if I climb back into bed instead of stopping at "Good morning".
 
 ---
 
-**Part 2 AI use.** The device design and the findings are mine. I used Claude (Claude Code) to write the device's code: the alarm flow, the sensor handling and calibration, and the dialogue policy. Claude also wrote up "how the system works" from the code, and wrote my prep answers 1 and 2 from what I told it, which I reviewed and approved. Inside the device, Claude (`claude-opus-5-5`) interprets what the person says, and OpenAI's `gpt-4o-mini-tts` speaks the device's lines.
+**Part 2 AI use.** The device design and the findings are mine. I used Claude (Claude Code) to write the device's code: the alarm flow, the sensor handling and calibration, and the dialogue policy. Claude also wrote up "how the system works" from the code, and wrote my prep answers 1 and 2 and the last two test answers from what I told it, which I reviewed and approved. Inside the device, Claude (`claude-opus-5-5`) interprets what the person says, and OpenAI's `gpt-4o-mini-tts` speaks the device's lines.
