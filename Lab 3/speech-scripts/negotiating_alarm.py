@@ -23,6 +23,8 @@ Sensors (MPR121 capacitive board over Qwiic):
 """
 
 import argparse
+import hashlib
+import os
 import re
 import sys
 import threading
@@ -44,6 +46,12 @@ LAB_DIR = Path(__file__).resolve().parent.parent
 DEFAULT_VAD = LAB_DIR / "models" / "silero_vad.onnx"
 DEFAULT_VOICE = LAB_DIR / "voices" / "en_US-lessac-medium.onnx"
 CLIPS_DIR = Path(__file__).resolve().parent / "promises"
+TTS_CACHE = Path(__file__).resolve().parent / "tts_cache"
+
+OPENAI_TTS_MODEL = "gpt-4o-mini-tts"
+OPENAI_STYLE = ("Speak like a dry, unhurried hotel concierge who has heard every "
+                "excuse and finds this mildly entertaining. Deadpan, low energy, "
+                "quietly amused. Never cheerful, never rushed.")
 
 # Timings, all in seconds except MAX_SNOOZE.
 ALARM_LISTEN = 6   # how long it listens between rounds of beeping
@@ -67,10 +75,65 @@ class Speaker:
 
     def say(self, text: str) -> None:
         print(f"DEVICE: {text}", flush=True)
+        self.speak_only(text)
+
+    def speak_only(self, text: str) -> None:
         for chunk in self.voice.synthesize(text):
             sd.play(np.frombuffer(chunk.audio_int16_bytes, dtype=np.int16),
                     samplerate=chunk.sample_rate)
             sd.wait()
+
+
+class OpenAISpeaker:
+    """OpenAI text-to-speech, streamed as raw 24 kHz 16-bit audio so playback
+    starts before the whole line is generated. Every line is cached on disk by
+    (model, voice, style, text), so the fixed lines cost one request ever and
+    then play instantly. Falls back to Piper if the request fails.
+
+    The API key comes from the OPENAI_API_KEY environment variable (the SDK's
+    default). Only the device's own text is sent; the person's voice is not."""
+
+    RATE = 24000
+
+    def __init__(self, voice: str, style: str, fallback: "Speaker") -> None:
+        from openai import OpenAI  # only needed with --tts openai
+        if not os.environ.get("OPENAI_API_KEY"):
+            raise RuntimeError("OPENAI_API_KEY is not set")
+        self.client = OpenAI(timeout=10.0, max_retries=1)
+        self.voice, self.style, self.fallback = voice, style, fallback
+        TTS_CACHE.mkdir(exist_ok=True)
+
+    def _cache_path(self, text: str) -> Path:
+        key = "\n".join([OPENAI_TTS_MODEL, self.voice, self.style, text])
+        return TTS_CACHE / (hashlib.sha256(key.encode()).hexdigest()[:24] + ".pcm")
+
+    def say(self, text: str) -> None:
+        print(f"DEVICE: {text}", flush=True)
+        path = self._cache_path(text)
+        if path.exists():
+            sd.play(np.frombuffer(path.read_bytes(), dtype=np.int16), self.RATE)
+            sd.wait()
+            return
+        audio = bytearray()
+        try:
+            with self.client.audio.speech.with_streaming_response.create(
+                model=OPENAI_TTS_MODEL, voice=self.voice, input=text,
+                instructions=self.style, response_format="pcm",
+            ) as resp, sd.RawOutputStream(samplerate=self.RATE, channels=1,
+                                          dtype="int16") as out:
+                pending = b""
+                for chunk in resp.iter_bytes(4800):
+                    chunk = pending + chunk
+                    cut = len(chunk) - (len(chunk) % 2)  # whole 16-bit samples only
+                    out.write(chunk[:cut])
+                    audio += chunk[:cut]
+                    pending = chunk[cut:]
+        except Exception as e:  # noqa: BLE001
+            print(f"        [openai tts failed ({type(e).__name__}); using piper]", flush=True)
+            if not audio:
+                self.fallback.speak_only(text)
+            return
+        path.write_bytes(bytes(audio))
 
 
 class Listener:
@@ -432,6 +495,10 @@ def main() -> None:
                         "(run --calibrate to measure yours)")
     p.add_argument("--calibrate", action="store_true",
                    help="guided measurement of the water pad, no dialogue")
+    p.add_argument("--tts", choices=["piper", "openai"], default="piper",
+                   help="voice engine: Piper on the Pi, or OpenAI (needs OPENAI_API_KEY)")
+    p.add_argument("--openai-voice", default="cedar",
+                   help="OpenAI voice, e.g. cedar, marin, ash, onyx, sage")
     p.add_argument("--policy", choices=["rules", "claude"], default="rules",
                    help="dialogue policy: keyword rules, or Claude (needs ANTHROPIC_API_KEY)")
     p.add_argument("--alarm-volume", type=float, default=0.9,
@@ -455,6 +522,10 @@ def main() -> None:
     print("Loading models...", flush=True)
     listener = Listener(args.vad_model, args.model, args.min_silence)
     speaker = Speaker(args.voice)
+    if args.tts == "openai":
+        speaker = OpenAISpeaker(args.openai_voice, OPENAI_STYLE, fallback=speaker)
+    print(f"voice: {args.tts}" + (f" ({args.openai_voice})" if args.tts == "openai" else ""),
+          flush=True)
     policy = make_policy(args.policy)
     print(f"dialogue policy: {policy.name}", flush=True)
 
