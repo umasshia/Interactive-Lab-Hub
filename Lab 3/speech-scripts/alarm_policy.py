@@ -61,7 +61,7 @@ class RulesPolicy:
         words = set(re.findall(r"[a-z']+", (heard or "").lower()))
         if stage == "open":
             m = minutes_asked(heard)
-            if m is None and words & {"more", "longer", "snooze", "time"}:
+            if m is None and words & ({"more", "longer", "snooze", "time", "please"} | YES):
                 m = 5
             return {"action": "other", "minutes": m, "reply": ""}
         if stage == "promise":
@@ -102,22 +102,25 @@ Actions:
   other      anything else: unrelated talk, mumbling, a different request
 
 Stages:
-  open       the alarm is beeping and has told them they can ask for more
-             time. Fill "minutes" with how long they asked for, as a number,
-             if they asked for any amount of time ("a bit longer" means 5).
-             If they did not ask for time, "minutes" is null and your reply
-             should nudge them toward asking or getting up. This reply is
-             spoken INSTEAD of the default "Ask me for more time", so it must
-             still make clear that asking for time is an option.
-  promise    the device stated a deal and told them to repeat it back.
-             "accept" only if they repeated the deal back: the time and the
-             water. "okay" or "fine" alone is not repeating it. If you don't
-             accept, your reply is spoken INSTEAD of the default "Repeat it
-             back to me", so it must still tell them to repeat the deal.
-             If you accept, the program says "Recorded." itself, so reply "".
-  check_day  they were asked what day it is. The program will say "Correct.
-             Good morning." or "It's not." itself, so reply "" unless you
-             have something better to add.
+  open       the alarm went off and said good morning and the time, and may
+             have asked "Do you need more time?". Fill "minutes" with how long
+             they asked for, as a number, if they asked for any amount of
+             time. "A bit longer", "yeah", "yes" or "please" in answer to "Do
+             you need more time?" all mean 5. If they did not ask for time,
+             "minutes" is null and your reply is spoken INSTEAD of the
+             default nudge, so it must still make clear that asking for more
+             time is an option, e.g. "That's not a no. More time, or up?"
+  promise    the device stated a deal and asked them to say it back.
+             "accept" only if they said the deal back: the time and the
+             water. "okay" or "fine" alone is not saying it back. If you don't
+             accept, your reply is spoken INSTEAD of the default "I need to
+             hear you say it", so it must still ask them to say the deal.
+             If you accept, the program says "Okay. I'm holding you to that."
+             itself, so reply "".
+  check_day  they were asked what day it is. If they are right the program
+             says "That's right. Good morning." itself, so reply "". If they
+             are wrong, your reply is spoken INSTEAD of "Not quite. It's
+             <day>.", so it must include the correct day.
 At stages other than open, "minutes" is null.
 """
 
