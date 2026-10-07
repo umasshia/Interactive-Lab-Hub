@@ -96,13 +96,49 @@ class OpenAISpeaker:
 
     RATE = 24000
 
-    def __init__(self, voice: str, style: str, fallback: "Speaker") -> None:
+    def __init__(self, voice: str, style: str, fallback: "Speaker", gain: float = 2.0) -> None:
         from openai import OpenAI  # only needed with --tts openai
         if not os.environ.get("OPENAI_API_KEY"):
             raise RuntimeError("OPENAI_API_KEY is not set")
         self.client = OpenAI(timeout=10.0, max_retries=1)
-        self.voice, self.style, self.fallback = voice, style, fallback
+        self.voice, self.style, self.fallback, self.gain = voice, style, fallback, gain
         TTS_CACHE.mkdir(exist_ok=True)
+
+    def _louder(self, pcm: bytes) -> bytes:
+        """OpenAI's voice comes back quieter than the beep; boost it, clipped."""
+        a = np.frombuffer(pcm, dtype=np.int16).astype(np.float32) * self.gain
+        return np.clip(a, -32768, 32767).astype(np.int16).tobytes()
+
+    def _fetch(self, text: str) -> bytes:
+        """Generate a line without playing it, for warming the cache."""
+        with self.client.audio.speech.with_streaming_response.create(
+            model=OPENAI_TTS_MODEL, voice=self.voice, input=text,
+            instructions=self.style, response_format="pcm",
+        ) as resp:
+            return b"".join(resp.iter_bytes())
+
+    def _store(self, path: Path, audio: bytes) -> None:
+        tmp = path.with_suffix(".tmp")
+        tmp.write_bytes(audio)
+        tmp.replace(path)  # atomic: a half-written file is never played
+
+    def prewarm(self, lines: list[str]) -> None:
+        """Generate every fixed line in the background, so they play instantly.
+        Errors are ignored here; say() will try again (or fall back) later."""
+        def work():
+            made = 0
+            for text in lines:
+                path = self._cache_path(text)
+                if path.exists():
+                    continue
+                try:
+                    self._store(path, self._fetch(text))
+                    made += 1
+                except Exception:  # noqa: BLE001
+                    return
+            if made:
+                print(f"        [voice cache: {made} lines ready]", flush=True)
+        threading.Thread(target=work, daemon=True).start()
 
     def _cache_path(self, text: str) -> Path:
         key = "\n".join([OPENAI_TTS_MODEL, self.voice, self.style, text])
@@ -112,7 +148,7 @@ class OpenAISpeaker:
         print(f"DEVICE: {text}", flush=True)
         path = self._cache_path(text)
         if path.exists():
-            sd.play(np.frombuffer(path.read_bytes(), dtype=np.int16), self.RATE)
+            sd.play(np.frombuffer(self._louder(path.read_bytes()), dtype=np.int16), self.RATE)
             sd.wait()
             return
         audio = bytearray()
@@ -126,7 +162,7 @@ class OpenAISpeaker:
                 for chunk in resp.iter_bytes(4800):
                     chunk = pending + chunk
                     cut = len(chunk) - (len(chunk) % 2)  # whole 16-bit samples only
-                    out.write(chunk[:cut])
+                    out.write(self._louder(chunk[:cut]))
                     audio += chunk[:cut]
                     pending = chunk[cut:]
         except Exception as e:  # noqa: BLE001
@@ -137,7 +173,7 @@ class OpenAISpeaker:
             if not audio:
                 self.fallback.speak_only(text)
             return
-        path.write_bytes(bytes(audio))
+        self._store(path, bytes(audio))
 
 
 class Listener:
@@ -351,6 +387,28 @@ def snooze(seconds: float, speed: float, until=None, early_exit=True) -> bool:
     return fired
 
 
+def fixed_lines() -> list[str]:
+    """Every line the device can say that doesn't depend on Claude or the clock."""
+    today = DAYS[datetime.now().weekday()]
+    lines = ["Do you need more time?", "Do you want more time, or are you getting up?",
+             "I need to hear you say it.", "Okay. I'm holding you to that.", DRANK,
+             "Time's up, and that glass hasn't moved.",
+             "Time's up. You picked the glass up and put it straight back down.",
+             "Remember this?", "Fine. Then tell me what day it is.",
+             "That's right. Good morning.", f"Not quite. It's {today.capitalize()}.",
+             "Last chance. Put your hand on me and I'll stop.", "Okay. The hard way.",
+             "Good morning.", *FAKE_LIFT_LINES]
+    for m in range(1, MAX_SNOOZE + 1):
+        unit = f"minute{'s' if m > 1 else ''}"
+        deal = f"{spell(m)} {unit}, and then you drink that water"
+        lines.append(f"Okay. {deal[0].upper() + deal[1:]}. Say that back to me.")
+    deal = f"{spell(MAX_SNOOZE)} minutes, and then you drink that water"
+    for asked in (10, 15, 20, 30):
+        lines.append(f"{spell(asked).capitalize()} is a lot. I'll give you {deal}. "
+                     "Say that back to me.")
+    return lines
+
+
 def run(speaker: Speaker, listener: Listener, sensors: Sensors, policy,
         speed: float, alarm_volume: float) -> None:
     today = DAYS[datetime.now().weekday()]
@@ -509,6 +567,8 @@ def main() -> None:
                    help="guided measurement of the water pad, no dialogue")
     p.add_argument("--tts", choices=["piper", "openai"], default="piper",
                    help="voice engine: Piper on the Pi, or OpenAI (needs OPENAI_API_KEY)")
+    p.add_argument("--voice-gain", type=float, default=2.0,
+                   help="loudness boost for the OpenAI voice (1 = as delivered)")
     p.add_argument("--openai-voice", default="cedar",
                    help="OpenAI voice, e.g. cedar, marin, ash, onyx, sage")
     p.add_argument("--policy", choices=["rules", "claude"], default="rules",
@@ -535,7 +595,9 @@ def main() -> None:
     listener = Listener(args.vad_model, args.model, args.min_silence)
     speaker = Speaker(args.voice)
     if args.tts == "openai":
-        speaker = OpenAISpeaker(args.openai_voice, OPENAI_STYLE, fallback=speaker)
+        speaker = OpenAISpeaker(args.openai_voice, OPENAI_STYLE, fallback=speaker,
+                                gain=args.voice_gain)
+        speaker.prewarm(fixed_lines())
     print(f"voice: {args.tts}" + (f" ({args.openai_voice})" if args.tts == "openai" else ""),
           flush=True)
     policy = make_policy(args.policy)
