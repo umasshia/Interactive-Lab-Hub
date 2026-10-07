@@ -240,7 +240,11 @@ python negotiating_alarm.py --policy claude --speed 20 # snoozes 20x shorter, fo
 python negotiating_alarm.py --calibrate                # measure the water pad
 ```
 
-**Video of the system:** to do.
+**Video of the system:**
+
+https://github.com/user-attachments/assets/410e1d62-6f01-4a76-bca2-40778d98db66
+
+
 
 ## Test the system
 
