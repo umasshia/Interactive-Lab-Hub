@@ -194,50 +194,64 @@ The idea, the storyboard panels, the dialogue script, and the substance of all w
 
 # Lab 3 Part 2
 
-For Part 2, you will redesign the interaction with the speech-enabled device using the data collected, as well as feedback from part 1.
-
 ## Prep for Part 2
 
-1. What are concrete things that could use improvement in the design of your device? For example: wording, timing, anticipation of misunderstandings.
-2. What are other modes of interaction *beyond speech* that you might also use to clarify how to interact? In particular: how does someone know when the device is listening, and when it is thinking? You have a screen and an LED.
-3. Make a new storyboard, diagram and/or script based on these reflections.
-4. (optional) Integrate [input devices](inputs.md) in the system
+**1. What could be improved in the design?**
 
-## Prototype your system
+To do.
 
-The system should:
-* use the Raspberry Pi
-* use one or more sensors
-* require participants to speak to it
+**2. Beyond speech: how does someone know when the device is listening, and when it is thinking?**
 
-*Document how the system works.*
+To do.
 
-*Include videos or screencaptures of both the system and the controller.*
+**3. New storyboard, diagram or script**
+
+To do.
+
+## Prototype: how the system works
+
+The device sits on my desk across the room from my bed, next to a glass of water. It is a Raspberry Pi 5 with a USB microphone, a USB speaker, and an MPR121 capacitive touch board connected over Qwiic. Everything is in [`speech-scripts/negotiating_alarm.py`](speech-scripts/negotiating_alarm.py).
+
+**What it does, in order**
+
+1. **Alarm.** It beeps, says the time, and says "Ask me for more time." In Part E nobody knew the device could be spoken to, so the invitation is now part of the alarm itself.
+2. **The deal.** If I ask for time, it offers at most five minutes, in exchange for drinking the water: "Not ten. Five minutes. Then you drink the water. Repeat it back to me." If I talk without asking for time, it nudges me and keeps beeping.
+3. **Repeat it back.** A plain "okay" is not enough. I have to say the time and the water back to it, and until I do, it keeps beeping. That repeated sentence is recorded as my promise.
+4. **Snooze.** Silent for the full time, whatever happens.
+5. **Bugging.** If the glass has not been drunk from, the snooze is over for good. It plays my own recorded promise back to me, asks what day it is, then asks for a hand on the device, and goes back to beeping if all of those fail. Drinking the water at any point ends the alarm.
+
+**Sensors**
+
+- **Glass of water.** The glass sits on a pad of copper tape wired to pad 0 of the capacitive board. I measured it with a guided calibration mode (`--calibrate`): lifting the glass raises the reading by about 20, while a hand on the glass lowers it by about 40, so a touch cannot be mistaken for a lift. Drinking means the glass is off the pad for at least three seconds. A shorter lift is called out ("That was a lift, not a sip.").
+- **Hand on the device.** Pads 6 to 11 on the board, touched directly.
+- The pads are read 20 times a second on a background thread, so a drink taken while the device is talking is not missed.
+
+**Speech**
+
+- **Listening:** Silero voice activity detection decides when I have stopped talking, and faster-whisper (base.en) transcribes on the Pi. Base was the smallest model that got my own speech right in Part 1.
+- **Understanding:** each transcript goes to a dialogue policy, which decides what I meant (asked for time, repeated the deal, refused, said the right day) and gives the device a short reaction line. There are two policies: simple keyword rules, and Claude (`claude-opus-5-5`) with a persona file, [`alarm_persona.md`](speech-scripts/alarm_persona.md), that describes the alarm's character. The program, not the model, owns the timings, the snooze length and the sensors, so the model can react but cannot give me more time.
+- **Speaking:** Piper text-to-speech, on the Pi.
+
+**Running it**
+
+```
+python negotiating_alarm.py --policy claude            # real timings
+python negotiating_alarm.py --policy claude --speed 20 # snoozes 20x shorter, for demos
+python negotiating_alarm.py --calibrate                # measure the water pad
+```
+
+**Video of the system:** to do.
 
 ## Test the system
 
-Try to get at least two people to interact with your system. (Ideally, you would inform them that there is a wizard *after* the interaction, but we recognize that can be hard.)
-
-Answer the following:
-
 ### What worked well about the system and what didn't?
-\*\**your answer here*\*\*
+To do.
 
 ### What worked well about the controller and what didn't?
-\*\**your answer here*\*\*
+To do.
 
 ### What lessons can you take away from the WoZ interactions for designing a more autonomous version of the system?
-\*\**your answer here*\*\*
+To do.
 
 ### How could you use your system to create a dataset of interaction? What other sensing modalities would make sense to capture?
-\*\**your answer here*\*\*
-
-<details>
-  <summary><strong>Submission Cleanup Reminder (Click to Expand)</strong></summary>
-
-  **Before submitting your README.md:**
-  - This readme.md file has a lot of extra text for guidance.
-  - Remove all instructional text and example prompts from this file.
-  - You may either delete these sections or use the toggle/hide feature in VS Code to collapse them for a cleaner look.
-  - Your final submission should be neat, focused on your own work, and easy to read for grading.
-</details>
+To do.
