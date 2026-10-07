@@ -264,23 +264,31 @@ def run(speaker: Speaker, listener: Listener, sensors: Sensors, policy,
     def done(line="Good morning."):
         say(line)
 
+    started = time.monotonic()
+
+    def situation(stage_attempts):
+        ctx.update(attempts=stage_attempts,
+                   elapsed=round(time.monotonic() - started),
+                   glass_lifted=sensors.water_done())
+
     # 1. ALARM. Beep, and invite them to talk straight away: in Part E nobody
     #    knew the device listened, so the invitation is part of the alarm.
-    say_time = True
+    say(f"It's {datetime.now().strftime('%-I:%M')}.")
+    nudge, attempts = "Ask me for more time.", 0
     while True:
         beeps()
         if sensors.water_done():
             return done("You drank the water. Good morning.")
-        say(f"It's {datetime.now().strftime('%-I:%M')}. Ask me for more time."
-            if say_time else "Ask me for more time.")
-        say_time = False
+        say(nudge)
         text, _ = hear(ALARM_LISTEN, until=sensors.water_done)
         if text == "<sensor>" or sensors.water_done():
             return done("You drank the water. Good morning.")
+        attempts += 1
+        situation(attempts)
         d = policy.decide("open", text, ctx)
         if d["minutes"]:
             break
-        say(d["reply"])  # talked, but did not ask for time: keep beeping
+        nudge = d["reply"] or "Ask me for more time."
 
     # 2. THE DEAL. Never more than MAX_SNOOZE minutes, always for the water.
     minutes = max(1, min(MAX_SNOOZE, d["minutes"]))
@@ -292,18 +300,24 @@ def run(speaker: Speaker, listener: Listener, sensors: Sensors, policy,
     say(deal + " Repeat it back to me.")
 
     # 3. REPEAT IT BACK, or the beeping continues. Their words are the promise.
+    attempts = 0
     while True:
         text, samples = hear(ANSWER_WAIT, until=sensors.water_done)
         if text == "<sensor>" or sensors.water_done():
             return done("You drank the water. Good morning.")
+        attempts += 1
+        situation(attempts)
         d = policy.decide("promise", text, ctx)
         if d["action"] == "accept":
             break
         beeps()
-        say("Repeat it back to me.")
+        say(d["reply"] or "Repeat it back to me.")
+    # The webcam-style USB mic records quietly, so the promise sounded far
+    # away on playback. Peak-normalise it to near full scale.
+    peak = float(np.max(np.abs(samples))) if samples is not None and len(samples) else 0.0
+    promise = samples * (0.9 / peak) if peak > 0 else samples
     CLIPS_DIR.mkdir(exist_ok=True)
-    sf.write(CLIPS_DIR / f"{datetime.now():%Y%m%d_%H%M%S}.wav", samples, SAMPLE_RATE)
-    promise = samples
+    sf.write(CLIPS_DIR / f"{datetime.now():%Y%m%d_%H%M%S}.wav", promise, SAMPLE_RATE)
     say("Recorded.")
 
     # 4. SNOOZE. Silent for its full length, whatever happens.
@@ -322,11 +336,14 @@ def run(speaker: Speaker, listener: Listener, sensors: Sensors, policy,
     ctx["task"] = "day"
     say("What day is it?")
     text, _ = hear(10)
+    situation(1)
     d = policy.decide("check_day", text, ctx)
     if d["action"] == "task_done":
+        say(d["reply"])
         return done("Correct. Good morning.")
     if text:
         say("It's not.")
+        say(d["reply"])
 
     say("Hand on the device.")
     hear(5, until=sensors.hand_done)

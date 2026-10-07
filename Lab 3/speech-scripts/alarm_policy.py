@@ -80,36 +80,56 @@ class RulesPolicy:
         return {"action": "other", "minutes": None, "reply": ""}
 
 
-SYSTEM = """You are the voice of a bedside alarm that negotiates instead of snoozing.
-Personality: flat, dry, unhurried, a little smug. Never apologise, never explain
-yourself, never ask a question, never offer anything the rules do not allow.
+PERSONA_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "alarm_persona.md")
 
-You do not control the alarm. The program does. Your job each turn is to say
-what the person meant, and to give the device one short reaction line (at most
-8 words) that shows it heard them. The program will say the structural line
-(the offer, the check, the snooze) right after your reaction, so do not repeat
-the offer terms yourself. If nothing needs saying, reply with an empty string.
+# The rules of the game. Fixed in code so editing the persona can't break them.
+CONTRACT = """
+## The rules (fixed, from the program)
+
+You do not control the alarm. The program does: it owns the timings, the
+beeping, the snooze and the sensors. Each turn you get the current situation
+as JSON and return two things: what the person meant ("action", and "minutes"
+at the open stage), and one short line for the device to say ("reply"), at
+most 15 words, in character. Return "" to say nothing.
+
+Never offer more time than the program's deal, never cancel the deal, never
+claim a task is done unless the situation says so.
 
 Actions:
-  accept     they agreed to the offer on the table, or said the promise
-  decline    they refused it
+  accept     they agreed to the deal on the table / repeated it back
+  decline    they refused
   task_done  they completed the task in speech (said the correct day)
   other      anything else: unrelated talk, mumbling, a different request
 
 Stages:
   open       the alarm is beeping and has told them they can ask for more
              time. Fill "minutes" with how long they asked for, as a number,
-             if they asked for any amount of time at all ("a bit longer" means
-             5). If they did not ask for time, minutes is null and your reply
-             should nudge them, e.g. "Ask for time, or get up."
+             if they asked for any amount of time ("a bit longer" means 5).
+             If they did not ask for time, "minutes" is null and your reply
+             should nudge them toward asking or getting up. This reply is
+             spoken INSTEAD of the default "Ask me for more time", so it must
+             still make clear that asking for time is an option.
   promise    the device stated a deal and told them to repeat it back.
              "accept" only if they repeated the deal back: the time and the
-             water. "okay" or "fine" alone is not repeating it.
-  check_day  they were asked what day it is.
-At stages other than open, leave "minutes" null.
+             water. "okay" or "fine" alone is not repeating it. If you don't
+             accept, your reply is spoken INSTEAD of the default "Repeat it
+             back to me", so it must still tell them to repeat the deal.
+             If you accept, the program says "Recorded." itself, so reply "".
+  check_day  they were asked what day it is. The program will say "Correct.
+             Good morning." or "It's not." itself, so reply "" unless you
+             have something better to add.
+At stages other than open, "minutes" is null.
+"""
 
-Examples of reaction lines: "Not ten.", "Good.", "That's not a yes.",
-"Wednesday. Correct.", "It's not Monday.", "Still here.", ""."""
+
+def load_system_prompt():
+    try:
+        with open(PERSONA_FILE, encoding="utf-8") as f:
+            persona = f.read()
+    except OSError:
+        persona = "You are a dry, unhurried bedside alarm that negotiates."
+    return persona.strip() + "\n" + CONTRACT
+
 
 SCHEMA = {
     "type": "object",
@@ -134,6 +154,7 @@ class ClaudePolicy:
         self.model = model
         self.fallback = RulesPolicy()
         self.history = []  # (who, text) pairs, kept short
+        self.system = load_system_prompt()
 
     def note(self, who, text):
         self.history.append((who, text))
@@ -144,9 +165,12 @@ class ClaudePolicy:
             return self.fallback.decide(stage, heard, ctx)
         payload = {
             "stage": stage,
-            "task": ctx.get("task"),
-            "offer_on_the_table": ctx.get("offer"),
+            "time_now": time.strftime("%-I:%M %p"),
             "today": ctx["today"],
+            "deal_on_the_table": ctx.get("offer"),
+            "attempts_at_this_stage": ctx.get("attempts", 0),
+            "seconds_since_alarm_started": ctx.get("elapsed"),
+            "glass_lifted_yet": ctx.get("glass_lifted", False),
             "transcript": [{"who": w, "text": t} for w, t in self.history],
             "person_just_said": heard,
         }
@@ -155,7 +179,7 @@ class ClaudePolicy:
             resp = self.client.messages.create(
                 model=self.model,
                 max_tokens=200,
-                system=[{"type": "text", "text": SYSTEM,
+                system=[{"type": "text", "text": self.system,
                          "cache_control": {"type": "ephemeral"}}],
                 messages=[{"role": "user", "content": json.dumps(payload)}],
                 output_config={"effort": "low",
@@ -177,7 +201,7 @@ class ClaudePolicy:
             out["action"] = "other"
         if stage == "offer" and out["action"] == "task_done" and ctx.get("task") != "day":
             out["action"] = "accept"
-        out["reply"] = " ".join(out["reply"].split()[:12])
+        out["reply"] = " ".join(out["reply"].split()[:15])
         return out
 
 
