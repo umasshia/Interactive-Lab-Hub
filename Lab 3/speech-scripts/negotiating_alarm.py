@@ -25,6 +25,7 @@ Sensors (MPR121 capacitive board over Qwiic):
 import argparse
 import re
 import sys
+import threading
 import time
 from datetime import datetime
 from pathlib import Path
@@ -46,7 +47,14 @@ CLIPS_DIR = Path(__file__).resolve().parent / "promises"
 
 # Timings, all in seconds except MAX_SNOOZE.
 ALARM_LISTEN = 6   # how long it listens between rounds of beeping
-LIFT_HOLD = 1.0    # the glass must be off the pad this long to count
+LIFT_HOLD = 1.0    # off the pad this long counts as a lift at all
+DRINK_HOLD = 3.0   # off the pad this long counts as drinking
+FAKE_LIFT_LINES = [
+    "That was a lift, not a sip.",
+    "Up and down. I saw that.",
+    "The water has to go in you.",
+    "Nice try. Drink it.",
+]
 ANSWER_WAIT = 15   # how long it waits for the deal to be repeated back
 MAX_SNOOZE = 5     # minutes. Ask for less and you get what you asked for.
 
@@ -126,6 +134,9 @@ class Sensors:
             self.cap = adafruit_mpr121.MPR121(busio.I2C(board.SCL, board.SDA))
         except Exception as e:  # noqa: BLE001
             print(f"WARNING: no MPR121 ({e}); sensor checks will always be 'not done'")
+        self._lock = threading.Lock()
+        self._thread = None
+        self._hand = False
         time.sleep(0.3)  # the chip's first reading after wake-up is 0
         self.reset_water()
 
@@ -134,32 +145,65 @@ class Sensors:
 
     def reset_water(self) -> None:
         """Call with the glass sitting on the pad. Lifting is measured from here."""
-        self.water_baseline = self.water_reading()
-        self._above_since = None
-        self._lifted = False
+        with self._lock:
+            self.water_baseline = self.water_reading()
+            self._above_since = None
+            self._lifted = False
+            self.fake_lifts = 0
+
+    def start_watching(self) -> None:
+        """Read the pads 20 times a second on a background thread, so a drink
+        taken while the device is talking or playing audio is still seen. All
+        I2C access happens on this thread once it starts."""
+        if self.cap is None or self._thread is not None:
+            return
+        self._thread = threading.Thread(target=self._watch, daemon=True)
+        self._thread.start()
+
+    def _watch(self) -> None:
+        while True:
+            reading = self.water_reading()
+            hand = any(self.cap[i].value for i in self.hand_pads)
+            now = time.monotonic()
+            with self._lock:
+                self._hand = hand
+                if self._lifted:
+                    pass
+                elif reading - self.water_baseline >= self.water_delta:
+                    if self._above_since is None:
+                        self._above_since = now
+                    elif now - self._above_since >= DRINK_HOLD:
+                        self._lifted = True
+                elif self._above_since is not None:
+                    # Glass came back down. Measured on the bench: lifting
+                    # RAISES the reading ~20, a hand LOWERS it ~40, so only a
+                    # rise counts. A lift too short to drink is a fake.
+                    if now - self._above_since >= LIFT_HOLD:
+                        self.fake_lifts += 1
+                        print(f"        [fake lift: {now - self._above_since:.1f}s]",
+                              flush=True)
+                    self._above_since = None
+            time.sleep(0.05)
 
     def water_done(self) -> bool:
-        """True once the glass has been off the pad for LIFT_HOLD seconds.
+        """True once the glass has been off the pad for DRINK_HOLD seconds.
+        Stays true: putting the glass back after drinking is expected."""
+        with self._lock:
+            return self._lifted
 
-        Measured on the bench: lifting the glass RAISES the reading by ~20,
-        while a hand on the glass LOWERS it by ~40. So only a sustained rise
-        counts; touching or tapping the glass does not. Once lifted, it stays
-        done, since putting the glass back after drinking is expected."""
-        if self.cap is None:
-            return False
-        if self._lifted:
-            return True
-        if self.water_reading() - self.water_baseline >= self.water_delta:
-            if self._above_since is None:
-                self._above_since = time.monotonic()
-            elif time.monotonic() - self._above_since >= LIFT_HOLD:
-                self._lifted = True
-        else:
-            self._above_since = None
-        return self._lifted
+    def take_fake_lifts(self) -> int:
+        """How many too-short lifts happened since the last call."""
+        with self._lock:
+            n, self.fake_lifts = self.fake_lifts, 0
+            return n
 
     def hand_done(self) -> bool:
-        return self.cap is not None and any(self.cap[i].value for i in self.hand_pads)
+        if self.cap is None:
+            return False
+        if self._thread is None:
+            return any(self.cap[i].value for i in self.hand_pads)
+        with self._lock:
+            return self._hand
 
     def _sample(self, seconds: float = 3.0) -> tuple[float, int, int]:
         vals = []
@@ -209,7 +253,8 @@ class Sensors:
         while True:
             hand = [i for i in self.hand_pads if self.cap[i].value] if self.cap else []
             bed = self.cap.filtered_data(self.bed_pad) if self.cap else 0
-            print(f"water {self.water_reading():4d}  done={self.water_done()!s:5}  "
+            print(f"water {self.water_reading():4d}  rise "
+                  f"{self.water_reading() - self.water_baseline:+4d}  "
                   f"bed {bed:4d}  hand touched {hand}", flush=True)
             time.sleep(0.25)
 
@@ -264,6 +309,14 @@ def run(speaker: Speaker, listener: Listener, sensors: Sensors, policy,
     def done(line="Good morning."):
         say(line)
 
+    fakes_called = [0]
+
+    def call_out_fakes():
+        """If they lifted the glass and put it straight back, say so."""
+        if sensors.take_fake_lifts():
+            say(FAKE_LIFT_LINES[fakes_called[0] % len(FAKE_LIFT_LINES)])
+            fakes_called[0] += 1
+
     started = time.monotonic()
 
     def situation(stage_attempts):
@@ -283,6 +336,7 @@ def run(speaker: Speaker, listener: Listener, sensors: Sensors, policy,
         text, _ = hear(ALARM_LISTEN, until=sensors.water_done)
         if text == "<sensor>" or sensors.water_done():
             return done("You drank the water. Good morning.")
+        call_out_fakes()
         attempts += 1
         situation(attempts)
         d = policy.decide("open", text, ctx)
@@ -305,6 +359,7 @@ def run(speaker: Speaker, listener: Listener, sensors: Sensors, policy,
         text, samples = hear(ANSWER_WAIT, until=sensors.water_done)
         if text == "<sensor>" or sensors.water_done():
             return done("You drank the water. Good morning.")
+        call_out_fakes()
         attempts += 1
         situation(attempts)
         d = policy.decide("promise", text, ctx)
@@ -325,13 +380,17 @@ def run(speaker: Speaker, listener: Listener, sensors: Sensors, policy,
         return done("You drank the water. Good morning.")
 
     # 5. BUGGING. The deal is broken: no more snoozes, just tasks until one is done.
-    say("You didn't drink the water.")
+    if sensors.take_fake_lifts():
+        say("You picked it up and put it back. That's not drinking.")
+    else:
+        say("You didn't drink the water.")
     print("DEVICE: [plays back the promise]", flush=True)
     sd.play(promise, SAMPLE_RATE)
     sd.wait()
     hear(10, until=sensors.water_done)
     if sensors.water_done():
-        return done()
+        return done("You drank the water. Good morning.")
+    call_out_fakes()
 
     ctx["task"] = "day"
     say("What day is it?")
@@ -403,6 +462,7 @@ def main() -> None:
         print(f"Alarm in {args.alarm_in:.0f}s. Put the glass on the pad now.", flush=True)
         time.sleep(args.alarm_in)
     sensors.reset_water()  # glass on the pad when the alarm fires
+    sensors.start_watching()
     run(speaker, listener, sensors, policy, args.speed, args.alarm_volume)
 
 
