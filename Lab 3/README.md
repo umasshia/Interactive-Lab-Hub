@@ -198,11 +198,11 @@ The idea, the storyboard panels, the dialogue script, and the substance of all w
 
 **1. What could be improved in the design?**
 
-After acting it out, the biggest problem was that there was no way to confirm the person actually did anything. It also was not clear that you could talk to the device at all. The pauses were too long, and in my first prototype the line "Ask me for more time" was worded badly and sounded unnatural.
+The wording, mostly. The first version only took a yes and dropped a step on anything else, so it needs to handle the way people actually answer. The lag is also pretty bad, one and a half to five seconds after every answer, which feels long when you're half asleep. And it shouldn't just refuse "I'll drink the water" without a time. It should ask when.
 
 **2. Beyond speech: how does someone know when the device is listening, and when it is thinking?**
 
-If the device says something inviting and then stops, especially if it ends on a question, you can assume it is listening. I don't think a light or a screen would help much with showing that it is thinking, because the person is half asleep and won't be processing things quickly either, so a few seconds of delay won't stand out. The beeping already does the most important job, which is telling you it is time to wake up.
+A light for when it's listening and a different one or a little sound for when it's thinking. That way the pause doesn't feel like it's ignoring you. The glass already kind of does this, picking it up is how you answer.
 
 **3. New storyboard, diagram or script**
 
@@ -248,18 +248,24 @@ https://github.com/user-attachments/assets/410e1d62-6f01-4a76-bca2-40778d98db66
 
 ## Test the system
 
+I could not get two other people to test the system in time, so these answers come from testing it myself and from the Part E session.
+
 ### What worked well about the system and what didn't?
-To do.
+The core loop worked. It asked if I needed more time, held me to five minutes, had me repeat myself, and stayed quiet during the snooze. If I let it run out, it played my promise back and waited for me to drink the water, which just means lifting the glass for 3 seconds. The glass sensor was fine. The difference in the reading wasn't huge but you could see it.
+
+I had to calibrate the mic and speaker to sound good. I also tried copper tape on the mattress to tell if I was in bed, but it was a hassle to put on and the long strip drowned out my body. The first version kind of sucked to talk to since it only took a yes. Changing the wording and letting it react to what I said made it a lot better.
 
 ### What worked well about the controller and what didn't?
-To do.
+No human wizard. Claude reads what I say and decides what I meant, and the program handles the timing and sensors. It was good with loose answers like "give me a little more time" or "yeah, give me like 10 minutes," and the short reactions made it feel like it was listening.
+
+The main problem is lag, one and a half to five seconds per reply on top of transcription. It was also strict about the deal and wouldn't take "I'll drink the water" without a time.
 
 ### What lessons can you take away from the WoZ interactions for designing a more autonomous version of the system?
-When I acted it out, my partner got up right away, drank the water, and went back to the couch without ever talking to the device. Two lessons came out of that. First, the device has to invite the conversation itself, because nothing about an alarm tells you it can listen, so the autonomous version asks "Do you need more time?" instead of waiting to be asked. Second, it can't take the person's word for anything. It needs sensors to confirm the task was actually done, and ideally to notice when someone goes back to bed after the alarm stops. I tried copper tape on the bed for that and it didn't work, so a bed pressure pad is what I'd add next.
+Keep the timing and sensors in code and let the model only handle speech. That part worked. It understood me fine, it was just slow, so speed matters more than smarts. It should ask a follow-up instead of rejecting a half answer. And trust the sensors over speech for whether I actually did the thing.
 
 ### How could you use your system to create a dataset of interaction? What other sensing modalities would make sense to capture?
-The device already measures the glass: when it was lifted, for how long, and when someone fakes it by putting it straight back down. Recorded over many mornings, that would show how long it actually takes me to get up and whether the water task works. The other sensor I'd add is a bed pressure pad, which would show when I get out of bed and whether I get back in. That data could also feed back into the device itself, so it keeps going if I climb back into bed instead of stopping at "Good morning".
+Log everything: audio, transcript, what Claude thought I meant, how long it took, glass readings, and whether I did the task. A few mornings of that would show where it misreads me. A pressure pad under the mattress would beat the copper tape for bed sensing, and a motion sensor or camera could catch when I actually get up.
 
 ---
 
-**Part 2 AI use.** The device design and the findings are mine. I used Claude (Claude Code) to write the device's code: the alarm flow, the sensor handling and calibration, and the dialogue policy. Claude also wrote up "how the system works" from the code, and wrote my prep answers 1 and 2 and the last two test answers from what I told it, which I reviewed and approved. Inside the device, Claude (`claude-opus-5-5`) interprets what the person says, and OpenAI's `gpt-4o-mini-tts` speaks the device's lines.
+I used Claude to write the code and to write up how the system works and the prep 3 answer. The device itself uses Claude to understand what the person says and OpenAI's `gpt-4o-mini-tts` to speak.
