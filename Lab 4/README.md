@@ -1,506 +1,179 @@
 # Ph-UI!!!
 
-<details>
-	<summary><strong>Instructions for Students (Click to Expand)</strong></summary>
-  
-	**Submission Cleanup Reminder:**
-	- This README.md contains extra instructional text for guidance.
-	- Before submitting, remove all instructional text and example prompts from this file.
-	- You may delete these sections or use the toggle/hide feature in VS Code to collapse them for a cleaner look.
-	- Your final submission should be neat, focused on your own work, and easy to read for grading.
-  
-	This helps ensure your README.md is clear, professional, and uniquely yours!
-</details>
+**Collaborators:** none, I did this lab alone.
+
+Pace Gate: a cloche that drops over my bowl after every bite so I stop inhaling my food. A distance sensor in front of the bowl sees the spoon come in and go back out, the lid closes for a chewing pause, and reaching in while it is shut counts as a cheat.
 
 ---
 
----
+# Part 1
 
-## Lab Overview
-Team: <canvas group name>  
-Members: Full Name (netid, github-handle), ...  
-Clock name: <name>
+## A. Capacitive sensing
 
+MPR121 on Qwiic with my keys on pad 11 and a bare alligator clip on pad 0. `cap_test.py` registered touches on both pads, with no false touches. A held touch repeats every 0.25 s, which is the script's poll interval.
 
-For lab this week, we focus on both sensing and actuation, bringing new modes of input and output into your devices, while also prototyping the physical structure and overall look of the device. You will consider how the physical form supports sensing and actuation, and how these elements come together to shape the interaction and aesthetics of the device.
+![Part A to C rig, key blurred](media/full-rig-keyblur.jpeg)
 
----
+## B. More sensors
 
-## Lab Structure
+- **APDS-9960 proximity:** idle 0 to 1, climbing gradually as my hand came closer and saturating at 255 when it was right on top. Good for "something is right here", not for distance.
+- **APDS-9960 gesture:** the printed directions matched my swipes, but some swipes were missed.
+- **APDS-9960 color:** my room light is warm, so everything read reddish. The blue servo was the only object that clearly shifted the ratio, and color temperature was the most useful single number.
+- **Rotary encoder:** worked, but direction is inverted on my unit (clockwise counts down). I lit its NeoPixel red, green and blue.
+- **Joystick:** rests around 530 on both axes, 0 to 1023 at the extremes, button reads 0 when pressed.
+- **VCNL4040 distance:** about 25 at 20 cm, about 100 at 10 cm, about 500 at 5 cm, about 21,000 touching. Very non-linear, but unlike the APDS-9960 it still tells 20 cm from far away, which is why I used it for Pace Gate.
 
-A) [Capacitive Sensing](#part-a)
+## C. Servo
 
-B) [More Sensors](#part-b)
-
-C) [Servo Actuation](#part-c)
-
-D) [Physical Interaction Design: Feast Automata](#part-d)
-
-E) [Build & Integrate](#part-e)
-
-F) [Final Documentation](#part-f)
+The Servo pHAT has its own USB-C power, with the micro servo on channel 0. `pi_servo_hat_test.py` swept 0 to 120 and back smoothly and settled at the 60 degree center every time.
 
 ---
 
-## Part 1 Lab Preparation
+## D. Feast Automata
+
+### The dining moment
+
+I eat almost everything alone at my desk, usually takeout, and almost always while watching something on my phone. My real problem is that I eat too fast when I am watching something: big bites, no pause, not enough chewing. I notice it sometimes while it is happening and definitely afterwards. I wanted something that slows me down, gentle or annoying, but a little comedic.
+
+I worked up three concepts: Pace Gate (comedic, slow my eating), Omelette Conductor (useful, a pointer dial that walks me through an omelette, which I always mess up), and Pop-out Table (spatial, a shelf that opens when I hold food against it, because I end up eating on my bed).
+
+### Sketches
+
+Seven arrangements across the three concepts. The drawings were rendered with AI from my own arrangements.
+
+![Pace Gate arrangements](media/pace-gate-3-arrangements.png)
+
+1. **Pace Gate, cloche.** VCNL4040 at the plate rim pointing up, servo hinges a cloche over the plate. When a bite is taken, the device closes the plate.
+2. **Pace Gate, rising wall.** Servo drives a rack that raises a wall in front of the plate, phone stays visible.
+3. **Pace Gate, phone tilt.** Servo in the phone stand tilts the phone away when a bite comes too soon.
+
+![Omelette Conductor arrangements](media/omelette-conductor-2-arrangements.png)
+
+4. **Omelette Conductor, counter dial.** Box next to the stove, VCNL4040 facing the pan's resting spot, servo pointer over the steps, encoder to pause or go back.
+5. **Omelette Conductor, wall clock.** Same dial on the wall above the stove, sensor looking down at the pan.
+
+![Pop-out Table arrangements](media/pop-out-table-2-arrangements.png)
+
+6. **Pop-out Table, desk edge.** Shelf folded down under the desk edge, APDS-9960 on its face, servo swings it up 90 degrees.
+7. **Pop-out Table, wall by the bed.** Shelf folded against the wall, servo at the top, sensor under the shelf.
+
+### Questions the sketches raise
+
+**1. Cloche.** Does the VCNL4040 at the front rim see the spoon and hand come in without also seeing the plate rim or the food? Can the servo lift a cardboard dome from a back-corner hinge? Is 15 seconds a pause or a punishment? Cardboard answers all three.
+
+**2. Rising wall.** How tall does the wall need to be to block the plate without blocking the phone? How big does the pinion have to be for 120 degrees of travel? Is a wall that slides up less funny than a lid that drops? Cardboard answers height and funniness; the rack needs a laser-cut test.
+
+**3. Phone tilt.** Where should the pivot sit so the servo isn't lifting the phone's full weight? At what angle does the video become unwatchable? Does tilting the phone slow me down, or do I just lean forward? Cardboard answers all three.
+
+**4. Counter dial.** Does the VCNL4040 see the pan leave at 10 to 15 cm, and does a metal pan read differently from a hand? Does the pan go back to the same spot? The first steps happen before the pan moves, so what starts the dial? Cardboard answers the sensor range and the cradle.
+
+**5. Wall clock.** Does the VCNL4040 even read the pan from above the stove, through steam? Is a 30 cm dial readable while I look down at the pan? Is mounting above a stove safe for the Pi? Cardboard answers readability.
+
+**6. Desk edge.** Can the servo swing a cardboard leaf up 90 degrees? Does the APDS-9960 see a container held against it and ignore my knees? Once the shelf is up the sensor faces the floor, so how does it know the food is gone? Cardboard answers placement and the floor problem.
+
+**7. Wall by the bed.** What does the sensor see folded versus horizontal? Does gravity open the shelf with the servo only releasing a latch? Is this where I actually eat? Cardboard answers all three.
+
+### The pick
+
+Sketch 1, the Pace Gate cloche. I picked the cloche because I eat too fast. I keep going in for bites and can't control myself. Even when I try to be conscious of it, I catch myself swallowing my food too quickly and just inhaling it. I also wanted the device to have some comedy to it, and a lid that slams shut on my plate after every bite felt like the funniest way to make me slow down.
+
+### Rough prototype
+
+I laser cut the parts from 3 mm cardboard at the MakerLAB: a 30 x 30 cm base, a 32 x 20 cm sheet that bends into the lid, two half-circle ends, block layers and a sensor tab. The lid is a half-cylinder that sits over the bowl.
+
+![Lid assembled](media/build-lid.jpeg)
+![Base with blocks and sensor tab](media/build-base.jpeg)
 
 ---
 
-### Get the latest content:
-As always, pull updates from the class Interactive-Lab-Hub to both your Pi and your own GitHub repo. As we discussed in the class, there are 3 ways you can do so:
+# Part 2
 
+## E. Build and integrate
 
-Option 1: On the Pi, `cd` to your `Interactive-Lab-Hub`, pull the updates from upstream (class lab-hub) and push the updates back to your own GitHub repo. You will need the personal access token for this.
-```
-pi@ixe00:~$ cd Interactive-Lab-Hub
-pi@ixe00:~/Interactive-Lab-Hub $ git pull upstream Fall2026
-pi@ixe00:~/Interactive-Lab-Hub $ git add .
-pi@ixe00:~/Interactive-Lab-Hub $ git commit -m "get lab4 content"
-pi@ixe00:~/Interactive-Lab-Hub $ git push
-```
+### How it works
 
-Option 2: On your own GitHub repo, [create pull request](https://github.com/FAR-Lab/Developing-and-Designing-Interactive-Devices/blob/2021Fall/readings/Submitting%20Labs.md) to get updates from the class Interactive-Lab-Hub. After you have latest updates online, go on your Pi, `cd` to your `Interactive-Lab-Hub` and use `git pull` to get updates from your own GitHub repo.
+- **Sensing:** a VCNL4040 distance sensor faces up in front of the bowl. A bite is the spoon coming in over it and going back out.
+- **Actuation:** once the hand has left, plus half a second so the lid never lands on it, the servo drops the lid. It stays shut for 10 seconds, then lifts slowly.
+- **Cheats:** reaching in while the lid is shut is counted as a cheat.
+- **Not bites:** for 2 seconds after the lid opens the sensor is ignored, so taking the spoon back isn't a bite. If something sits on the sensor for more than 3 seconds, like food I dropped, it says "Sensor covered" instead of counting a bite.
 
-Option 3: (preferred) use the Github.com interface to update the changes.
+Hardware: Raspberry Pi 5, SparkFun Servo pHAT on its own USB-C, kit micro servo on channel 0, VCNL4040 on Qwiic. The right side of the lid pivots on a chopstick and the left side is screwed to the servo horn.
 
----
-
-### Quick Start: Python Environment Setup
-
-1. **Create and activate a virtual environment in Lab 4:**
-	```bash
-	cd ~/Interactive-Lab-Hub/Lab\ 4
-	python3 -m venv .venv
-	source .venv/bin/activate
-	```
-2. **Install all Lab 4 requirements:**
-	```bash
-	pip install -r requirements2025.txt
-	```
-3. **Check CircuitPython Blinka installation:**
-	```bash
-	python blinkatest.py
-	```
-	If you see "Hello blinka!", your setup is correct. If not, follow the troubleshooting steps in the file or ask for help.
-
----
-
-### Gathering materials for this lab:
-
-* Cardboard (start collecting those shipping boxes!)
-* Found objects and materials--like bananas and twigs.
-* Cutting board
-* Cutting tools
-* Markers
-
-
-(We do offer shared cutting board, cutting tools, and markers on the class cart during the lab, so do not worry if you don't have them!)
-
----
-
-### Prototyping References 
-
-* [What do prototypes prototype?](https://www.semanticscholar.org/paper/What-do-Prototypes-Prototype-Houde-Hill/30bc6125fab9d9b2d5854223aeea7900a218f149)
-* [Paper prototyping](https://www.uxpin.com/studio/blog/paper-prototyping-the-practical-beginners-guide/) is used by UX designers to quickly develop interface ideas and run them by people before any programming occurs. 
-* [Cardboard prototypes](https://www.youtube.com/watch?v=k_9Q-KDSb9o) help interactive product designers to work through additional issues, like how big something should be, how it could be carried, where it would sit. 
-* [Tips to Cut, Fold, Mold and Papier-Mache Cardboard](https://makezine.com/2016/04/21/working-with-cardboard-tips-cut-fold-mold-papier-mache/) from Make Magazine.
-* [Surprisingly complicated forms](https://www.pinterest.com/pin/50032245843343100/) can be built with paper, cardstock or cardboard.  The most advanced and challenging prototypes to prototype with paper are [cardboard mechanisms](https://www.pinterest.com/helgangchin/paper-mechanisms/) which move and change. 
-* [Dyson Vacuum Cardboard Prototypes](http://media.dyson.com/downloads/JDF/JDF_Prim_poster05.pdf)
-<p align="center"><img src="https://dysonthedesigner.weebly.com/uploads/2/6/3/9/26392736/427342_orig.jpg"  width="200" > </p>
-
-### Feast Automata Inspirations
-
-* [Simone Giertz - The Breakfast Machine](https://www.youtube.com/watch?v=E2evC2xTNWg) turns an everyday breakfast routine into a deliberately awkward robotic performance.
-* [Pee-wee’s Big Adventure - Breakfast Machine](https://www.classhook.com/resources/1295-pee-wee-s-big-adventure-pee-wee-s-breakfast-machine?utm_source=chatgpt.com) An elaborate Rube Goldberg-style machine turns the ordinary routine of making breakfast into a playful mechanical performance.
-* [Wallace & Gromit - The Autochef](https://www.google.com/search?sca_esv=66d2cd5ecf989ed9&sxsrf=APpeQnuwAWHrA3R0b1GeoQ4r-spKos3vUQ:1789367781228&udm=7&fbs=ABfTbFVyMZGZf1hfvX9uKjN_-G8cxpBkeIeqYwoCbfNVc4vKE7plZzta63Pe5DpJ3XFR9XzI_yj6fb6bfPt1x_5u3nRcG7tR9jg4Omd7-UnDuaw5i86wRQqe-045kPXObjb1eDS649ikhB0y_hSFYfNioDnA60A2i_oC1IzIZywb7ERnDQqnSx10JnfJEaAauzJXglx4123_vjf0_54bKrF6QjM9ne5i3g&q=Wallace+%26+Gromit+%E2%80%94+The+Autochef&sa=X&ved=2ahUKEwiI0OO3uu2WAxVHEFkFHQ3iAOEQtKgLegQIFRAB&biw=1197&bih=613&dpr=2.5#fpstate=ive&vld=cid:72c3eb07,vid:2igRcGxlshA,st:0)
-* [Nik Ramage - Jelly Wobbler](http://www.youtube.com/watch?v=pj2t71q68sY#t=33) makes the simple act of wobbling jelly into a dedicated machine.
-* [Zekun Chang - Blah Blah](https://zekunchang.com/portfolio/blah-blah/) is an alcohol machine that presents a playful commentary on drunken behavior.
-
-### Mechanical Prototyping Resource
-
-* [Gear Template Generator](https://woodgears.ca/gear_cutting/template.html) can help you prototype simple gear mechanisms for translating servo motion into physical movement.
-
-
----
-
-### Part A
-### Capacitive Sensing, a.k.a. Human-Twizzler Interaction 
-
-We want to introduce you to the [capacitive sensor](https://learn.adafruit.com/adafruit-mpr121-gator) in your kit. It's one of the most flexible input devices we are able to provide. At boot, it measures the capacitance on each of the 12 contacts. Whenever that capacitance changes, it considers it a user touch. You can attach any conductive material. In your kit, you have copper tape that will work well, but don't limit yourself! In the example below, we use Twizzlers--you should pick your own objects.
-
-
-<p float="left">
-<img src="https://cdn-learn.adafruit.com/guides/cropped_images/000/003/226/medium640/MPR121_top_angle.jpg?1609282424" height="150" />
- 
-</p>
-
-Plug in the capacitive sensor board with the QWIIC connector. Connect your Twizzlers with either the copper tape or the alligator clips (the clips work better). Install the latest requirements from your working virtual environment:
-
-These Twizzlers are connected to pads 6 and 10. When you run the code and touch a Twizzler, the terminal will print out the following
+Code: [`pace_gate.py`](pace_gate.py)
 
 ```
-(circuitpython) pi@ixe00:~/Interactive-Lab-Hub/Lab 4 $ python cap_test.py 
-Twizzler 10 touched!
-Twizzler 6 touched!
+python pace_gate.py            # run Pace Gate
+python pace_gate.py --watch    # print sensor readings, for tuning the threshold
+python pace_gate.py --jog 100  # move the servo slowly between angles, for mounting the lid
 ```
+
+```mermaid
+flowchart LR
+    A[Spoon comes in over sensor] --> B{Reading above 30?}
+    B -- yes --> C[Hand leaves: reading below 15]
+    C --> D[Wait 0.5 s]
+    D --> E[Servo closes lid]
+    E --> F[Hold 10 s]
+    F -- reach in --> G[Count a cheat]
+    G --> F
+    F --> H[Servo lifts lid slowly]
+    H --> I[Ignore sensor 2 s]
+    I --> A
+```
+
+### Video
+
+[Pace Gate demo (Wizard of Oz)](media/pace-gate-woz-demo.mp4)
+
+The sensing and the timing in the video are real: the terminal is the Pi running `pace_gate.py`. The lid is moved by my hand. The kit micro servo could not move the lid (see below), so I wizarded the actuation and moved the lid on the program's cues. Two bites, one cheat, and taking the spoon back after the lid opened was correctly not counted.
+
+### Iterations
+
+- **Hinge.** A tape hinge on the right side was too floppy to keep the lid lined up, so I replaced it with a chopstick through the right half-circle as a pin hinge.
+- **Horn attachment.** Putty and tape could not hold the horn against the pull of the lid. Screwing the horn through the cardboard into the shaft worked.
+- **Opening angle.** My first open angle stood the lid fully upright. Past upright, the lid's weight hangs off the horn and the servo stalled and overheated twice. I narrowed the swing and made the code refuse angles past it.
+- **Servo strength.** Even inside the narrow range the kit micro servo hummed and barely moved the lid, and only moved it when I nudged it. Next is an MG996R with its own supply.
+- **Sensor height.** Flat on the base, a natural bite only read 15 to 20, while idle went up to about 11 with the lid and bowl nearby, so natural bites didn't register. Raising the sensor about 4 to 5 cm gave idle 3 to 8 and natural bites around 60. I set the threshold to 30.
+- **Timing.** 15 seconds closed was too much, so I changed it to 10.
+- **False bites.** I was worried that taking the spoon back after the lid opens would count as a bite, so I added a 2 second grace period. Food can also drop right onto the sensor, so a reading that stays high for more than 3 seconds is treated as "sensor covered".
+
+### Questions to consider
+
+**How does your chosen sensor or input shape the physical response?**
+
+The lid couldn't come down over the sensor, because then it would read the lid instead of my spoon. That meant the relationship between the lid, the bowl, the spoon and the sensor had to be mapped out exactly: the sensor sits in front of where the lid lands, and the lid only closes after my hand has left.
+
+**How does the physical arrangement of the sensor and actuator change the interaction?**
+
+Raising the sensor made the interaction much more realistic. Flat on the base it only caught my spoon when I went really low, and with it raised I could take normal bites. I didn't put my phone in this setup; there was already a good amount going on.
+
+**What thresholds, timing, or movement patterns make the interaction feel clear or playful?**
+
+15 seconds was too much and I got annoyed. 10 was ok. The cheat had potential to be funny, but only if the machine somehow responded to it. Right now it just counts it.
+
+**What changes when you adjust the sensor placement or servo motion?**
+
+Moving the sensor up changed the most: natural bites started registering. I didn't change the servo motion much. Mostly I had to align it very meticulously at the start so the lid sat closed in the right place.
+
+### Reflection
+
+Movement needs to be balanced. I had to do the whole chopstick hinge because the lid just would not close properly when only one side was held. Moving something in a controlled way also takes way more power than I expected, and the small servo couldn't do it. The device also left me with a spoon in my hand just hanging out while I waited, and that felt unnatural. I think eating is not something that should be treated this way, and building it made that clearer to me than the idea did on paper.
 
 ---
 
-### Part B
-### More sensors
+## F. Final documentation
 
-#### Light/Proximity/Gesture sensor (APDS-9960)
+**Looks like.** A cardboard half-cylinder about 20 cm long and 10 cm tall that covers a cereal bowl, on a 30 x 30 cm base, with the sensor on a small raised tab in front where my spoon passes.
 
-We here want you to get to know this awesome sensor [Adafruit APDS-9960](https://www.adafruit.com/product/3595). It is capable of sensing proximity, light (also RGB), and gesture! 
- 
-<img src="https://cdn-shop.adafruit.com/970x728/3595-06.jpg" width=200>
- 
+![Closed](media/build-closed.jpeg)
+![Open](media/build-open.jpeg)
 
-Connect it to your pi with Qwiic connector and try running the three example scripts individually to see what the sensor is capable of doing!
+**Works like.** The sensing and logic run for real on the Pi: bites, the pause, cheats, the grace period and the covered-sensor check all work. The actuation does not yet: the kit micro servo cannot move the lid, and needs a stronger servo.
 
-```
-(circuitpython) pi@ixe00:~/Interactive-Lab-Hub/Lab 4 $ python proximity_test.py
-...
-(circuitpython) pi@ixe00:~/Interactive-Lab-Hub/Lab 4 $ python gesture_test.py
-...
-(circuitpython) pi@ixe00:~/Interactive-Lab-Hub/Lab 4 $ python color_test.py
-...
-```
-
-You can go the the [Adafruit GitHub Page](https://github.com/adafruit/Adafruit_CircuitPython_APDS9960) to see more examples for this sensor!
-
-#### Rotary Encoder 
-
-A rotary encoder is an electro-mechanical device that converts the angular position to analog or digital output signals. The [Adafruit rotary encoder](https://www.adafruit.com/product/4991#technical-details) we ordered for you came with separate breakout board and encoder itself, that is, they will need to be soldered if you have not yet done so! We will be bringing the soldering station to the lab class for you to use, also, you can go to the MakerLAB to do the soldering off-class. Here is some [guidance on soldering](https://learn.adafruit.com/adafruit-guide-excellent-soldering/preparation) from Adafruit. When you first solder, get someone who has done it before (ideally in the MakerLAB environment). It is a good idea to review this material beforehand so you know what to look at.
-
-<p float="left">
-
-   
-<img src="https://cdn-shop.adafruit.com/970x728/377-02.jpg" height="200" />
-<img src="https://cdn-shop.adafruit.com/970x728/4991-09.jpg" height="200">
-</p>
-
-Connect it to your pi with Qwiic connector and try running the example script, it comes with an additional button which might be useful for your design!
-
-```
-(circuitpython) pi@ixe00:~/Interactive-Lab-Hub/Lab 4 $ python encoder_test.py
-```
-
-You can go to the [Adafruit Learn Page](https://learn.adafruit.com/adafruit-i2c-qt-rotary-encoder/python-circuitpython) to learn more about the sensor! The sensor actually comes with an LED (neo pixel): Can you try lighting it up? 
-
-#### Joystick 
-
-
-A [joystick](https://www.sparkfun.com/products/15168) can be used to sense and report the input of the stick for it pivoting angle or direction. It also comes with a button input!
-
-<p float="left">
-<img src="https://cdn.sparkfun.com//assets/parts/1/3/5/5/8/15168-SparkFun_Qwiic_Joystick-01.jpg" height="200" />
-</p>
-
-Connect it to your pi with Qwiic connector and try running the example script to see what it can do!
-
-```
-(circuitpython) pi@ixe00:~/Interactive-Lab-Hub/Lab 4 $ python joystick_test.py
-```
-
-You can go to the [SparkFun GitHub Page](https://github.com/sparkfun/Qwiic_Joystick_Py) to learn more about the sensor!
-
-#### Distance Sensor
-
-
-Earlier we have asked you to play with the proximity sensor, which is able to sense objects within a short distance. Here, we offer [Sparkfun Proximity Sensor Breakout](https://www.sparkfun.com/products/15177), With the ability to detect objects up to 20cm away.
-
-<p float="left">
-<img src="https://cdn.sparkfun.com//assets/parts/1/3/5/9/2/15177-SparkFun_Proximity_Sensor_Breakout_-_20cm__VCNL4040__Qwiic_-01.jpg" height="200" />
-
-</p>
-
-Connect it to your pi with Qwiic connector and try running the example script to see how it works!
-
-```
-(circuitpython) pi@ixe00:~/Interactive-Lab-Hub/Lab 4 $ python qwiic_distance.py
-```
-
-You can go to the [SparkFun GitHub Page](https://github.com/sparkfun/Qwiic_Proximity_Py) to learn more about the sensor and see other examples
+**Acts like.** The Wizard of Oz video: I take a bite, the lid comes down, I wait, I try to sneak a bite and get caught, the lid lifts.
 
 ---
 
-### Part C
-### Servo Actuation
+## AI use
 
-Now that you have explored several forms of sensing, add physical output by learning to control a servo motor. Complete the Servo pHAT setup and basic servo test before beginning your interaction design.
-
-### Servo Control with SparkFun Servo pHAT
-For this lab, you will use the **SparkFun Servo pHAT** to control a micro servo (such as the Miuzei MS18 or similar 9g servo). The Servo pHAT stacks directly on top of the Adafruit Mini PiTFT (135×240) display without pin conflicts:
-- The Mini PiTFT uses SPI (GPIO22, 23, 24, 25) for display and buttons ([SPI pinout](https://pinout.xyz/pinout/spi)).
-- The Servo pHAT uses I²C (GPIO2 & 3) for the PCA9685 servo driver ([I2C pinout](https://pinout.xyz/pinout/i2c)).
-- Since SPI and I²C are separate buses, you can use both boards together.
-**⚡ Power:**
-- Plug a USB-C cable into the Servo pHAT to provide enough current for the servos. The Pi itself should still be powered by its own USB-C supply. Do NOT power servos from the Pi’s 5V rail.
-
-<p align="center">
-    <img src="Servo_pHAT.gif" alt="Servo pHAT Demo" width="400"/>
-</p>
-
-**Basic Python Example:**
-We provide a simple example script: `Lab 4/pi_servo_hat_test.py` (requires the `pi_servo_hat` Python package).
-Run the example:
-```
-python pi_servo_hat_test.py
-```
-For more details and advanced usage, see the [official SparkFun Servo pHAT documentation](https://learn.sparkfun.com/tutorials/pi-servo-phat-v2-hookup-guide/all#resources-and-going-further).
-A servo motor is a rotary actuator that allows for precise control of angular position. The position is set by the width of an electrical pulse (PWM). You can read [this Adafruit guide](https://learn.adafruit.com/adafruit-arduino-lesson-14-servo-motors/servo-motors) to learn more about how servos work.
-
----
-
-### Part D
-### Physical Interaction Design: Feast Automata
-
-**Feast Automata:** build a device that **transforms ordinary dining rituals into playful physical interactions.** Begin with a familiar experience around eating, drinking, cooking, serving, or sharing food, and explore how sensing and actuation might augment, exaggerate, automate, or reinterpret your dining experience.
-
-In this part, use the sensing techniques from Parts A–B and the servo actuation from Part C to develop a physical interaction.
-
-#### Physical considerations for sensing
-
-Sensors need to be positioned in specific locations or orientations to make them useful for an application. Choose a sensor that fits the dining interaction you want to explore. For example, a distance sensor could detect when a cup is placed on a coaster; where the sensor is positioned determines what it can reliably detect.
-
-Think about how the larger object needs to be shaped so the sensor can work reliably, where the actuator needs to sit, what moves, and how a person encounters the interaction.
-
-#### Physical Form and Housing
-
-Think about how your sensor, actuator, and electronics are physically arranged within your prototype. Consider where components need to be placed, what parts move, how the device is supported or enclosed, and how the overall form and aesthetics shape the interaction.
-
-Use cardboard, paper, found objects, or other low-fidelity materials to quickly prototype the physical structure before refining your final design.
-
-#### Optional Display Feedback: Qwiic OLED
-
-Your kit includes these [SparkFun Qwiic OLED screens](https://www.sparkfun.com/products/17153). These use less power than the MiniTFTs you have mounted on the GPIO pins of the Pi, but, more importantly, they can be more flexibly mounted elsewhere on your physical interface. The way you program this display is almost identical to the way you program a  Pi display. Take a look at `oled_test.py` and some more of the [Adafruit examples](https://github.com/adafruit/Adafruit_CircuitPython_SSD1306/tree/master/examples).
-
-<p float="left">
-<img src="https://cdn.sparkfun.com//assets/parts/1/6/1/3/5/17153-SparkFun_Qwiic_OLED_Display__0.91_in__128x32_-01.jpg" height="200" />
-
-</p>
-
-
-As you develop your Feast Automata concept, consider where the sensor and actuator need to be placed, what parts move, how electronics are housed, and how the overall form and aesthetics support the interaction.
-
-**\*\*\*Draw 5 sketches that explore different physical arrangements for your sensing and actuation.\*\*\***
-
-**\*\*\*What questions do these sketches raise? What do you need to physically prototype to answer them?\*\*\***
-
-**\*\*\*Pick one design to prototype and explain why.\*\*\***
-
-Build a cardboard or other low-fidelity physical prototype of your design.
-
-**\*\*\*Document your rough prototype with photos and/or video.\*\*\***
-
----
-
-## Part 2
-
-Following exploration and reflection from Part 1, complete the "looks like," "works like" and "acts like" prototypes for your design, reiterated below.
-
----
-
-### Part E
-
-#### Build & Integrate: Sensing + Actuation
-
-For Part 2, build the Feast Automata interaction you developed in Part D by connecting sensing/input to physical actuation.
-
-**Your prototype should:**
-- Use at least one sensing or input device.
-- Use servo-based physical actuation.
-- Connect sensing and actuation into a meaningful interaction around eating, drinking, cooking, serving, or sharing food.
-- Additional inputs, displays, LEDs, buttons, or other outputs are optional extensions.
-
-**Document your system with:**
-- Code for your sensing + actuation prototype
-- Photos and/or video of the working prototype in action
-- A simple interaction diagram or sketch showing how sensing and actuation are connected
-- Written reflection: What did you learn about connecting sensing, movement, and physical form? What was fun, surprising, or challenging?
-
-**Questions to consider:**
-- How does your chosen sensor or input shape the physical response?
-- How does the physical arrangement of the sensor and actuator change the interaction?
-- What thresholds, timing, or movement patterns make the interaction feel clear or playful?
-- What changes when you adjust the sensor placement or servo motion?
-
-Iterate on the sensing, movement, and physical form, and document what you discover.
-
-See encoder_accel_servo_dashboard.py in the Lab 4 folder for an optional example of chaining together three devices.
-
-**`Lab 4/encoder_accel_servo_dashboard.py`**
-
-#### Example Application: Windmill Coaster
-
-Now that you have explored both sensing and actuation, here is a simple example that combines the two.
-
-The **Windmill Coaster** uses a Qwiic distance/proximity sensor to detect when a cup is placed on a coaster. When the cup is detected, a servo motor animates a small windmill by sweeping it back and forth, turning an ordinary action during drinking into a playful physical interaction.
-
-<p align="center">
-    <img src="windmill_coaster11.gif" alt="Windmill Coaster Demo" width="400"/>
-</p>
-
-
-This example demonstrates a simple interaction pipeline:
-
-**cup placed → distance sensor detects cup → servo actuates windmill**
-
-Connect the Qwiic distance sensor to the Pi and connect the servo to Channel 0 of the Servo pHAT. Make sure the Servo pHAT is powered through its USB-C connection.
-
-Run the example script:
-
-```bash
-python windmill_coaster.py
-```
-
-The script continuously reads the proximity value from the distance sensor. When the value passes a threshold, the servo begins animating the windmill. When the cup is removed, the servo stops and returns to its resting position.
-
-You may need to adjust `CUP_THRESHOLD` in [`windmill_coaster.py`](windmill_coaster.py) depending on the size of your cup and the physical placement of the sensor. You can run `qwiic_distance.py` first to compare readings with and without a cup.
-
-Use this example as a starting point. Change the sensor, movement, physical form, or dining interaction to create your own Feast Automata variation.
-
-#### Optional Extensions
-
-The following examples are optional resources if you want to add more inputs or outputs to your prototype.
-
-##### Using Multiple Qwiic Buttons: Changing I2C Address (Physically & Digitally)
-
-If you want to use more than one Qwiic Button in your project, you must give each button a unique I2C address. There are two ways to do this:
-
-##### 1. Physically: Soldering Address Jumpers
-
-On the back of the Qwiic Button, you'll find four solder jumpers labeled A0, A1, A2, and A3. By bridging these with solder, you change the I2C address. Only one button on the chain can use the default address (0x6F).
-
-**Address Table:**
-
-| A3 | A2 | A1 | A0 | Address (hex) |
-|----|----|----|----|---------------|
-|  0 |  0 |  0 |  0 |    0x6F       |
-|  0 |  0 |  0 |  1 |    0x6E       |
-|  0 |  0 |  1 |  0 |    0x6D       |
-|  0 |  0 |  1 |  1 |    0x6C       |
-|  0 |  1 |  0 |  0 |    0x6B       |
-|  0 |  1 |  0 |  1 |    0x6A       |
-|  0 |  1 |  1 |  0 |    0x69       |
-|  0 |  1 |  1 |  1 |    0x68       |
-|  1 |  0 |  0 |  0 |    0x67       |
-| ...| ...| ...| ... |     ...      |
-
-For example, if you solder A0 closed (leave A1, A2, A3 open), the address becomes 0x6E.
-
-**Soldering Tips:**
-- Use a small amount of solder to bridge the pads for the jumper you want to close.
-- Only one jumper needs to be closed for each address change (see table above).
-- Power cycle the button after changing the jumper.
-
-##### 2. Digitally: Using Software to Change Address
-
-You can also change the address in software (temporarily or permanently) using the example script `qwiic_button_ex6_changeI2CAddress.py` in the Lab 4 folder. This is useful if you want to reassign addresses without soldering.
-
-Run the script and follow the prompts:
-```bash
-python qwiic_button_ex6_changeI2CAddress.py
-```
-Enter the new address (e.g., 5B for 0x5B) when prompted. Power cycle the button after changing the address.
-
-**Note:** The software method is less foolproof and you need to make sure to keep track of which button has which address!
-
-
-##### Using Multiple Buttons in Code
-
-After setting unique addresses, you can use multiple buttons in your script. See these example scripts in the Lab 4 folder:
-
-- **`qwiic_1_button.py`**: Basic example for reading a single Qwiic Button (default address 0x6F). Run with:
-	```bash
-	python qwiic_1_button.py
-	```
-
-- **`qwiic_button_led_demo.py`**: Demonstrates using two Qwiic Buttons at different addresses (e.g., 0x6F and 0x6E) and controlling their LEDs. Button 1 toggles its own LED; Button 2 toggles both LEDs. Run with:
-	```bash
-	python qwiic_button_led_demo.py
-	```
-
-Here is a minimal code example for two buttons:
-```python
-import qwiic_button
-
-# Default button (0x6F)
-button1 = qwiic_button.QwiicButton()
-# Button with A0 soldered (0x6E)
-button2 = qwiic_button.QwiicButton(0x6E)
-
-button1.begin()
-button2.begin()
-
-while True:
-		if button1.is_button_pressed():
-				print("Button 1 pressed!")
-		if button2.is_button_pressed():
-				print("Button 2 pressed!")
-```
-
-For more details, see the [Qwiic Button Hookup Guide](https://learn.sparkfun.com/tutorials/qwiic-button-hookup-guide/all#i2c-address).
-
----
-
-##### PCF8574 GPIO Expander: Add More Pins Over I²C
-
-Sometimes your Pi’s header GPIO pins are already full (e.g., with a display or HAT). That’s where an I²C GPIO expander comes in handy.
-
-We use the Adafruit PCF8574 I²C GPIO Expander, which gives you 8 extra digital pins over I²C. It’s a great way to prototype with LEDs, buttons, or other components on the breadboard without worrying about pin conflicts—similar to how Arduino users often expand their pinouts when prototyping physical interactions.
-
-**Why is this useful?**
-- You only need two wires (I²C: SDA + SCL) to unlock 8 extra GPIOs.
-- It integrates smoothly with CircuitPython and Blinka.
-- It allows a clean prototyping workflow when the Pi’s 40-pin header is already occupied by displays, HATs, or sensors.
-- Makes breadboard setups feel more like an Arduino-style prototyping environment where it’s easy to wire up interaction elements.
-
-**Demo Script:** `Lab 4/gpio_expander.py`
-
-<p align="center">
-    <img src="gpio_leds.gif" alt="GPIO Expander LED Demo" width="400"/>
-</p>
-
-We connected 8 LEDs (through 220 Ω resistors) to the expander and ran a little light show. The script cycles through three patterns:
-- Chase (one LED at a time, left to right)
-- Knight Rider (back-and-forth sweep)
-- Disco (random blink chaos)
-
-Every few runs, the script swaps to the next pattern automatically:
-```bash
-python gpio_expander.py
-```
-
-This is a playful way to visualize how the expander works, but the same technique applies if you wanted to prototype buttons, switches, or other interaction elements. It’s a lightweight, flexible addition to your prototyping toolkit.
-
----
-
-
----
-
----
-
-### Part F
-
-### Final Documentation
-
-Document all the prototypes and iterations you have designed and worked on! Again, deliverables for this lab are writings, sketches, photos, and videos that show what your prototype:
-* "Looks like": shows how the device should look, feel, sit, weigh, etc.
-* "Works like": shows what the device can do
-* "Acts like": shows how a person would interact with the device
-
----
-
-## Deliverables \& Submission for Lab 4
-
-The deliverables for this lab are, writings, sketches, photos, and videos that show what your prototype:
-* "Looks like": shows how the device should look, feel, sit, weigh, etc.
-* "Works like": shows what the device can do.
-* "Acts like": shows how a person would interact with the device.
-
-For submission, the readme.md page for this lab should be edited to include the work you have done:
-* Upload any materials that explain what you did, into your lab 4 repository, and link them in your lab 4 readme.md.
-* Link your Lab 4 readme.md in your main Interactive-Lab-Hub readme.md. 
-* Labs are due on Mondays, make sure to submit your Lab 4 readme.md to Canvas.
+The concepts, the arrangements in the sketches, the pick and its reason, and my test observations are mine. The sketches were rendered with AI from my arrangements. I used Claude to organize my concept notes, write `pace_gate.py`, make the laser-cut files, guide the build step by step, transcribe my demo narration, and draft this write-up from my notes, which I reviewed.
