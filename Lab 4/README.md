@@ -123,7 +123,12 @@ flowchart LR
 
 ### Video
 
-[Pace Gate demo (Wizard of Oz)](media/pace-gate-woz-demo.mp4)
+[Pace Gate demo (Wizard of Oz)]
+
+
+https://github.com/user-attachments/assets/d661d3cf-f1a2-46fd-ba57-ee36262cceca
+
+
 
 The sensing and the timing in the video are real: the terminal is the Pi running `pace_gate.py`. The lid is moved by my hand. The kit micro servo could not move the lid (see below), so I wizarded the actuation and moved the lid on the program's cues. Two bites, one cheat, and taking the spoon back after the lid opened was correctly not counted.
 
