@@ -6,7 +6,7 @@
 
 **Project name:** to be named
 
-**AI use:** Claude (Claude Code) drafted this README from my own notes and checklist and restructured my wording in places; the observations, fact checks, verdicts, the idea and the design decisions are mine. The three storyboard panels in Part F were generated with ChatGPT from a photo of my room; what each panel shows is mine. Nobody else helped with this lab apart from the housemate feedback quoted in Prep for Part 2.
+**AI use:** Claude helped me organize my notes into these paragraphs. The storyboard panels in Part F were generated with ChatGPT from a photo of my room.
 
 A camera on top of my PC watches my bedroom door all night and tells me in the morning how long after my 7:30 alarm I actually left the room.
 
@@ -124,7 +124,7 @@ While I sleep, the camera watches the closed door, one look every few seconds, a
 
 When I'm up, the Pi has Qwen turn the log into one sentence and reads it out loud through the same speaker with text-to-speech, something like "You got up 22 minutes after your alarm." Qwen takes about 20 seconds, so whether I'm still close enough to hear it is something to test. Detecting the alarm sound with the webcam's mic would be a later improvement, not built here.
 
-The panels were generated with ChatGPT from a photo of my room; the room layout, the camera placement and what happens in each panel are mine.
+Panels generated with ChatGPT from a photo of my room.
 
 ---
 
