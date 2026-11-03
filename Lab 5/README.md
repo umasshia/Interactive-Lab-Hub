@@ -1,360 +1,188 @@
 # Observant Systems: Overnight Sensation
 
-**Team:**
+**Team:** none, I did this lab alone.
 
-**Members:** Full Name (netid, github-handle), ...
+**Members:** Giorgi (Samu) Samushia (gs799, umasshia)
 
-**Project name:**
+**Project name:** to be named
 
-<details>
-	<summary><strong>Instructions for Students (Click to Expand)</strong></summary>
-  
-	**Submission Cleanup Reminder:**
-	- This README.md contains extra instructional text for guidance.
-	- Before submitting, remove all instructional text and example prompts from this file.
-	- You may delete these sections or use the toggle/hide feature in VS Code to collapse them for a cleaner look.
-	- Your final submission should be neat, focused on your own work, and easy to read for grading.
-  
-	This helps ensure your README.md is clear, professional, and uniquely yours!
-</details>
+**AI use:** Claude (Claude Code) drafted this README from my own notes and checklist and restructured my wording in places; the observations, fact checks, verdicts, the idea and the design decisions are mine. The three storyboard panels in Part F were generated with ChatGPT from a photo of my room; what each panel shows is mine. Nobody else helped with this lab apart from the housemate feedback quoted in Prep for Part 2.
 
-
-For lab this week, we focus on creating interactive systems that can detect and respond to events or stimuli in the environment of the Pi, like the Boat Detector we mentioned in lecture. 
-Your **observant device** could, for example, count items, find objects, recognize an event or continuously monitor a room.
-
-This lab will help you think through the design of observant systems, particularly corner cases that the algorithms need to be aware of.
-
-**New this year: the AI runs on the Pi.** Your Pi 5 can run an object detector ([YOLO](https://docs.ultralytics.com/)) and a small language model ([Qwen](https://ollama.com/library/qwen3.5) through [Ollama](https://ollama.com)) completely offline. In Part 1 you get both running and connect them: YOLO *sees*, Qwen *reasons* about what was seen. These models are slow, but they have all night. In Part 2 you use them to design a **night-time interaction**: what you tell the device before bed, what it does while you sleep, and what it shows you when you wake up.
-
-**Please indicate anyone that helped with this Lab here.**
-Be generous in acknowledging their contributions! And also recognizing any other influences (e.g. from YouTube, Github, Twitter) that informed your design. 
-
-## Overview
-
-**Part 1: the tools**
-
-A) [Set up your Pi for on-device AI](#part-a)
-
-B) [See: recognize people in real time with YOLO](#part-b)
-
-C) [See more: hands and pose with MediaPipe](#part-c)
-
-D) [Reason: run Qwen on the Pi with Ollama](#part-d)
-
-E) [Connect: from YOLO readings to Qwen reasoning](#part-e)
-
-**Part 2: Overnight Sensation**
-
-F) [Read Part 2 and storyboard your night-time interaction](#part-f)
-
-G) [Design the interaction before bed](#part-g)
-
-H) [Incorporate the observant system during sleep](#part-h)
-
-I) [Design the interaction when awake](#part-i)
-
-The tools from earlier versions of this lab (MobileNet, Teachable Machine, Moondream, audio analysis, classic OpenCV) live in the [legacy folder](legacy/README.md). They are optional, but any of them can be the sensor in your Part 2 system.
-
-
-## Prep for Part 1
-
-Please check the instructions in [prep.md](prep.md) and complete them before lab. The installs in Part A take a while, so prep.md also tells you how to get a head start.
-
-## The Report
-
-This readme.md page in your own repository should be edited to include the work you have done. You can delete everything but the headers and the sections between the \*\*\***stars**\*\*\*. Write the answers to the questions under the starred sentences. Include any material that explains what you did in this lab hub folder, and link it in the readme.
+A camera on top of my PC watches my bedroom door all night and tells me in the morning how long after my 7:30 alarm I actually left the room.
 
 ---
 
 # Part 1
 
-## Part A. 
-### Set up your Pi for on-device AI
+## A. Set up on-device AI
 
-Create a virtual environment and install the requirements. They include `ultralytics` (YOLO), which pulls in torch, so this takes a while:
+Venv in `Lab 5`, requirements installed with `uv pip install` (pip's torch download kept stalling on campus wifi, so I ran the uv install inside tmux). `import torch, ultralytics, mediapipe, ncnn, cv2` came back clean. The first ultralytics import spammed the `UnicodeEncodeError` latin-1 traceback, so I added the LANG, LC_ALL and PYTHONIOENCODING lines to `.bashrc` as the handout says.
 
-```
-pi@raspberrypi:~$ cd Interactive-Lab-Hub/Lab\ 5
-pi@raspberrypi:~/Interactive-Lab-Hub/Lab 5 $ python3 -m venv .venv
-pi@raspberrypi:~/Interactive-Lab-Hub/Lab 5 $ source .venv/bin/activate
-(.venv) pi@raspberrypi:~/Interactive-Lab-Hub/Lab 5 $ pip install -r requirements.txt
-```
+YOLO26n exported to NCNN in 22.8 s (9.4 MB). `yolo predict` on `bus.jpg` found 4 persons and 1 bus in 77 ms. On this ultralytics version `project=runs` resolves relative to the repo top, so the output landed in `~/Interactive-Lab-Hub/runs/detect/runs/predict` instead of `Lab 5/runs/predict`; the command itself was unchanged. My own `snap.py --delay 3` photo came back as 1 person in 83 ms.
 
-As in Lab 3, [`uv`](https://docs.astral.sh/uv/) is a much faster drop-in for `pip`: `pip install uv && uv pip install -r requirements.txt`.
+![snap.jpg](media/snap.jpg)
 
-### YOLO: download the nano model and export it for the Pi
+Ollama installed (CPU only on the Pi), `qwen3.5:0.8b` (1.3 GB) and `qwen3:0.6b` (522 MB) pulled.
 
-We use the nano model of [YOLO26](https://docs.ultralytics.com/models/yolo26/), exported once to NCNN, the format that runs fastest on the Pi. This downloads the weights:
+![ollama list](media/part-a-ollama-list.png)
 
-```
-(.venv) pi@raspberrypi:~/Interactive-Lab-Hub/Lab 5 $ python -c "from ultralytics import YOLO; YOLO('yolo26n.pt').export(format='ncnn')"
-(.venv) pi@raspberrypi:~/Interactive-Lab-Hub/Lab 5 $ yolo export model=yolo26n.pt format=ncnn
-```
-If every ultralytics message is followed by a `--- Logging error ---` traceback ending in `UnicodeEncodeError: 'latin-1' codec can't encode character`, fix your shell's locale once::
+## B. Recognize people in real time with YOLO
 
-```
-echo 'export LANG=C.UTF-8' >> ~/.bashrc
-echo 'export LC_ALL=C.UTF-8' >> ~/.bashrc
-echo 'export PYTHONIOENCODING=utf-8' >> ~/.bashrc
-source ~/.bashrc
-```
+`yolo_person.py` over VNC, with my own HQ webcam because it has a longer cord, repositioned so my whole body fits.
 
-The second command converts the .pt model to a .ncnn model.
+[Video: person detection, default settings (56 s)](media/part-b-yolo-person.mp4)
 
-Test it on an image from the internet. `project="$PWD"` keeps the output in `predict` in the current lab folder; without it, ultralytics writes to a `runs/` folder at the top of your git repo, where you will not think to look.
+What I tried on the default run: walking in and out, the confidence went up and down. Sitting down put more of me in the frame and the confidence went up. Turning my back, it went down. Lights off, the camera can't see anything. A photo of a person on my phone was seen as a person with high confidence.
 
-```
-(.venv) pi@raspberrypi:~/Interactive-Lab-Hub/Lab 5 $ yolo predict model=yolo26n_ncnn_model source=https://ultralytics.com/images/bus.jpg project="$PWD"
-```
+`--conf 0.2`: not much different overall, but it noticed me through the window reflection after I left the frame. `--conf 0.7`: nothing disappeared, the default run was already mostly at 0.83 to 0.91 with one reading at 0.48. `--all`: correct on bed, me, laptop, keyboard and mouse; wrong on my monitor (labeled laptop) and on the elephant on a Jungle Book vinyl on my wall (labeled person). `--headless`: no window, just the printed readings, `person at x=..., height=... px, conf=...` or `0 object(s)`.
 
-The result is in `predict/bus.jpg`: boxes around the people and the bus.
+[Video: `--all` run with the wrong labels (39 s)](media/part-b-yolo-all.mp4)
 
-Now a photo of your own. Plug in the webcam and take one with `snap.py` (`--delay 3` gives you three seconds to get into the frame), or choose any picture you downloaded from the internet and put under this folder. Put your selected picture after the `source=` Then run the same command on it:
+Three situations where it did not see me, or saw a person who was not there:
 
-```
-(.venv) pi@raspberrypi:~/Interactive-Lab-Hub/Lab 5 $ python snap.py --delay 3
-(.venv) pi@raspberrypi:~/Interactive-Lab-Hub/Lab 5 $ yolo predict model=yolo26n_ncnn_model source=snap.jpg project=runs
-```
+1. Lights off: it did not see me at all. The camera has nothing to work with in the dark, so there is no person to find.
+2. `--conf 0.2`, after I walked out of the frame: it kept reporting a person, which was my reflection in the window. A reflection is a real image of a person, and with the threshold that low it counted.
+3. `--all`: the elephant printed on the Jungle Book vinyl on my wall was labeled person. A figure-shaped print at a distance looks enough like a person for the nano model.
 
-Every run gets its own numbered folder, so this one is in `runs/predict2/snap.jpg`; the command prints where it saved. Keep `snap.jpg`, you will show it to Qwen in Part D.
+## C. Hands and pose with MediaPipe
 
-### Ollama: install it and pull Qwen
+`hand_pose.py` over VNC, 21 landmarks, about 13 FPS. The pinch control worked right away: thumb to index distance sets the volume.
 
-[Ollama](https://ollama.com) runs language models locally. Nothing leaves the Pi: no API key, no internet after the download.
+![pinch 53 %](media/part-c-pinch-53.png)
+![pinch 100 %](media/part-c-pinch-100.png)
 
-```
-pi@raspberrypi:~ $ curl -fsSL https://ollama.com/install.sh | sh
-pi@raspberrypi:~ $ ollama pull qwen3.5:0.8b
-pi@raspberrypi:~ $ ollama pull qwen3:0.6b
-pi@raspberrypi:~ $ ollama list
-```
+Quiet Coyote fired (`quiet coyote!`, volume 0) only after I fixed my distance to the camera and the finger shape, and it was super inconsistent. The script ANDs five fixed pixel thresholds between fingertips, so the gesture only counts at one distance from the camera, and most frames just missed one of the five.
 
-| model | download | what it does |
-|---|---|---|
-| `qwen3.5:0.8b` | ~1.3 GB | text **and images**; the one we use in this lab |
-| `qwen3:0.6b` | ~0.5 GB | text only, smaller and faster (~16 tokens/s on a Pi 5) |
+![quiet coyote](media/part-c-quiet-coyote.png)
 
-\*\*\***Include a screenshot of `ollama list` showing your models.**\*\*\*
+How I would use hand or body pose in an observant system: a tool that recognizes what chord shape I'm playing on a guitar from my fretting hand and plays along. Either it harmonizes with what I'm playing, or it gives me a background chord and I improvise a little over it. When I change the chord, it recognizes that and follows, and so on.
 
+## D. Qwen on the Pi
 
-## Part B. 
-### See: recognize people in real time with YOLO
+`ollama run qwen3.5:0.8b` with `/set nothink`, the Roosevelt Island question in three sentences: 0 of 5 claims true (it invented a 1743 British designation, said the island was discovered uninhabited, had the federal government take it over in the 1860s, named it after Theodore instead of Franklin, and called it a tourist attraction). `ask_qwen.py` with the same question took 14.4 s and was wrong again (built during the Revolutionary War for British forces in the French and Indian War). On `qwen3:0.6b` it took 13.7 s, put the island in the Pacific off California, and wrote five sentences despite the three-sentence system prompt. `ask_qwen.py --image snap.jpg "What is in this photo?"` took 33.7 s and described a man with dark tousled hair and a beard looking at the camera in a brown t-shirt, several framed pictures on a white wall. That one is true.
 
-YOLO is an *object detector*: it finds every person, cup, cat and so on (the 80 [COCO](https://cocodataset.org/) classes), draws a box around each, and gives a confidence. For an observant system that is exactly what you want: *how many*, *where*, *how sure*.
+My three questions, all on `qwen3.5:0.8b`:
 
-Connect your webcam, connect to your Pi through **VNC** (the script opens a window), and run the person detector. Read `yolo_person.py` first; the loop at the bottom is the whole idea.
+1. "Tell me about the country of Georgia." 9.0 s. It said landlocked, in the Caucasus, Russia to the north and west, Armenia east, Azerbaijan south, Turkey southwest, known for history, culture, gold and diamonds. Of 8 claims, 3 are true (Caucasus, Turkey to the southwest, history and culture), 1 partly false (Russia is north, the west is the Black Sea), 1 mostly false (some gold, no diamonds; manganese, copper and Borjomi water are the real ones) and 3 false (landlocked, Armenia east, Azerbaijan south). The general picture is right and the specifics are wrong.
+2. "When did Georgia join the European Union?" 3.0 s. "Georgia joined the EU on January 1, 2009." It accepted a false premise and invented a date. Georgia never joined: it applied in March 2022 and got candidate status in December 2023, and nothing since. No country joined in 2009 either (Bulgaria and Romania 2007, Croatia 2013).
+3. A narrow job with the facts supplied: five facts (South Caucasus with a Black Sea coast, the borders, applied March 2022, candidate December 2023, not in the EU), the rule "only use the facts, otherwise say it is not in the facts", and three questions: landlocked? when did it join the EU? capital? 11.3 s. Answers: "No, it has a coastline on the Black Sea" (correct from the facts); "Georgia joined the EU in March 2022" (wrong, it turned applied into joined, ignored the not-in-the-EU fact and followed the question's premise); "The capital of Georgia is Tbilisi" (true, but not in the facts, so wrong by the rule).
+
+Question 3 again on `qwen3:0.6b`: 4.6 s instead of 11.3 s. "No, Georgia is not landlocked" (right), "Georgia joined the EU in December 2023" (wrong), "Georgia's capital is Bucharest" (wrong, that is Romania).
+
+What I took from this into Part E: facts in the prompt help, but the model bends them toward the question and ignores a rule like only-the-facts, and it has no memory between runs. Time depends on the prompt and the answer length more than on the question. Keep the questions simple and check every answer against the log.
+
+## E. From YOLO readings to Qwen reasoning
+
+`yolo_to_qwen.py` for one minute, twice, through VNC. The first run I came in from the right close, went to center far (my room is not big enough), then went close to the camera, and it stopped before I could walk off. The log:
 
 ```
-(.venv) pi@raspberrypi:~/Interactive-Lab-Hub/Lab 5 $ python yolo_person.py
+17:46:17 nobody
+17:46:37 1 person(s) at right/close
+17:46:38 1 person(s) at center/close
+17:46:40 1 person(s) at right/close
+17:46:54 1 person(s) at center/close
 ```
 
-While it runs, walk in and out of the frame, sit down, turn your back, hold up a photo of a person on your phone. Watch the confidence number on the box change with each.
-
-Then press q to quit and run it again with a flag. Each one changes a single thing:
+Second run, with what I was actually doing next to each line:
 
 ```
-(.venv) pi@raspberrypi:~/Interactive-Lab-Hub/Lab 5 $ python yolo_person.py --conf 0.2     # lower the bar: see what the model is unsure about
-(.venv) pi@raspberrypi:~/Interactive-Lab-Hub/Lab 5 $ python yolo_person.py --conf 0.7     # raise the bar: see what you lose
-(.venv) pi@raspberrypi:~/Interactive-Lab-Hub/Lab 5 $ python yolo_person.py --all          # all 80 classes, not only people: what else is on your desk, and what does it get wrong?
-(.venv) pi@raspberrypi:~/Interactive-Lab-Hub/Lab 5 $ python yolo_person.py --headless     # no window, only the printed readings: how it runs over ssh, and at night
+17:52:37 nobody
+17:52:45 1 person(s) at right/close     true
+17:52:46 1 person(s) at center/close    true
+17:52:47 1 person(s) at right/close     true
+17:52:57 1 person(s) at center/close    I was trying to be as far as I can, but I have a small room
+17:53:07 1 person(s) at left/close      similar distance as before, but yes, to the left
+17:53:18 nobody                         walked out of frame
+17:53:25 1 person(s) at left/close      walked across the frame, these four are right
+17:53:26 1 person(s) at center/close
+17:53:27 1 person(s) at right/close
+17:53:27 nobody
+17:53:33 1 person(s) at right/close     walked back in at right, it's right
 ```
 
-\*\*\***Include a short video or screenshots of your experiments with the person detection. Write down three situations where it did not see you, or saw a person who was not there, and what you think the cause was.**\*\*\*
+Qwen (15.5 s) on that log: "There was only one person present throughout the entire 61-second observation period. They were consistently located either at the right or center of the room, never moving to a different position. No changes occurred in their location or activity during this time."
 
+Sentence by sentence: the first one I read as no more than one person, which is true, although the log has three `nobody` lines. The second missed left completely. The third is wrong too: the log only writes a line when the reading changes, and it wrote 14.
 
+One thing the log never says is `far`. My room is small, so my box was always taller than 60 % of the frame. The interpreter can tell left, center and right in my room, but not distance.
 
-## Part C. 
-### See more: hands and pose with MediaPipe
+## F. Storyboard
 
-YOLO tells you that a person is there. Google's [MediaPipe](https://mediapipe.dev/) tells you what their hands and body are doing: face, hand and body pose detection, fast on the Pi.
+Things I wanted to know when I wake up: how late I went to sleep, how restless I was, whether I got up during the night, and how long it actually took me to get out of bed after my alarm. I went with the last one.
 
-![Media pipe](Readme_files/mp.gif)
+My alarm is always at 7:30. The webcam sits on top of my PC box facing my bedroom door, with the bed out of the frame. If I walk past that frame, I'm definitely up.
 
-The demo plays a looping audio file, so make the helper script executable first:
+![Panel 1, before bed](media/part-f-panel-1.png)
 
-```
-(.venv) pi@raspberrypi:~/Interactive-Lab-Hub/Lab 5 $ chmod +x loop_audio.sh
-```
+Before bed, I turn the lights off, and that's the hand-off. The Pi notices the frame going dark (a simple average-brightness check, since YOLO can't see lights off on its own) and plays a short beep through a speaker, so I know it's watching for me after 7:30.
 
-Connect your webcam, connect to your Pi through **VNC**, and run the hand pose script:
-(***it will not work if you use ssh from your laptop***)
+![Panel 2, while asleep](media/part-f-panel-2.png)
 
-```
-(.venv) pi@raspberrypi:~/Interactive-Lab-Hub/Lab 5 $ python hand_pose.py
-```
+While I sleep, the camera watches the closed door, one look every few seconds, and logs nobody or a person.
 
-Try the two main features of this script: 1) pinching for percentage control (the thumb-to-index distance sets the volume), and 2) "[Quiet Coyote](https://www.youtube.com/watch?v=qsKlNVpY7zg)" for instant percentage setting (the gesture mutes it). Notice how this example uses hardcoded positions and relates those positions with a desired set of events, in `hand_pose.py`: a hand is 21 landmark coordinates, and an *event* is a rule you write over them. That is the same job as `interpret()` in Part E.
+![Panel 3, when awake](media/part-f-panel-3.png)
 
-Consider how you might use this position based approach to create an interaction, and write how you might use it on either face, hand or body pose tracking.
+When I'm up, the Pi has Qwen turn the log into one sentence and reads it out loud through the same speaker with text-to-speech, something like "You got up 22 minutes after your alarm." Qwen takes about 20 seconds, so whether I'm still close enough to hear it is something to test. Detecting the alarm sound with the webcam's mic would be a later improvement, not built here.
 
-\*\*\***Include a screenshot or short video of the hand pose demo, and write how you might use face, hand or body pose tracking in your observant system.**\*\*\*
-
-
-## Part D. 
-### Reason: run Qwen on the Pi with Ollama
-
-Talk to the model in the terminal first. Qwen3 models "think" before they answer, which is slow on a Pi, so turn it off. Then ask about something you can check:
-
-```
-pi@raspberrypi:~ $ ollama run qwen3.5:0.8b
->>> /set nothink
->>> Tell me a bit about the history of Roosevelt Island. Three sentences.
->>> /bye
-```
-
-Roosevelt Island is a good first question because you know the ground truth: it was Blackwell's Island, then Welfare Island, got its current name in 1973, and Cornell Tech opened on it in 2017. Count how many of the model's facts are true.
-
-From Python, qwen requests can be triggered by the `ask_qwen.py` script. It turns thinking off, tells the model to answer in at most three sentences, and cuts it off after 120 tokens (`--max-tokens` changes that), because a small model left alone writes an essay. Read the script, then run:
-
-```
-(.venv) pi@raspberrypi:~/Interactive-Lab-Hub/Lab 5 $ python ask_qwen.py "Tell me a bit about the history of Roosevelt Island."
-(.venv) pi@raspberrypi:~/Interactive-Lab-Hub/Lab 5 $ python ask_qwen.py --model qwen3:0.6b "Tell me a bit about the history of Roosevelt Island."
-(.venv) pi@raspberrypi:~/Interactive-Lab-Hub/Lab 5 $ python ask_qwen.py --image snap.jpg "What is in this photo?"
-```
-
-Things in the [Ollama API](https://github.com/ollama/ollama/blob/main/docs/api.md) worth knowing:
-
-* `think: false` skips the reasoning trace. Always, on a Pi. `ask_qwen.py` sends it on every request; `--think` turns the trace back on for one question, so you can see what you are skipping and how long it takes.
-* `format` makes the model answer as JSON with the fields you name (`--json`). Handy when a display or a servo has to read the answer.
-* `images` sends a photo along with the prompt (`--image snap.jpg`, the photo from Part A). `qwen3.5:0.8b` can look at pictures.
-
-A 0.8B model is slow and sometimes wrong. It will invent events that are not in the data and agree with a wrong premise. Give it the data, keep its job narrow, and decide what the device does when the model is unsure.
-
-\*\*\***Ask Qwen three questions to answer. Paste the questions, the answers and how long each took. Try one of them with `qwen3:0.6b` and compare.**\*\*\*
-
-<details>
-  Q&A here
-</details>
-
-
-## Part E. 
-### Connect: from YOLO readings to Qwen reasoning
-
-An observant system is a pipeline: a **detector** turns pixels into boxes, an **interpreter** turns boxes into readings in words ("one person, left, close"), the readings pile up in a **log**, and a **reasoner** answers a question about the log. The language model never sees pixels, only the words you chose in the interpreter. That makes the interpreter the most important design decision in the system.
-
-`yolo_to_qwen.py` is the pipeline in one file, one function per stage. Read it before you run it:
-
-* `interpret(r)` is the interpreter. It takes one YOLO result and returns one reading. A person is *left*, *center* or *right* by which third of the frame the middle of their box is in, and *close* if the box is taller than 60% of the frame, *far* otherwise. The reading is a string like `1 person(s) at center/close`, or `nobody`. Fifteen lines, and they decide everything the model can know.
-* `watch(seconds)` is the detector and the log. Twice a second it reads a frame, runs YOLO on it and calls `interpret()`. A time-stamped reading goes into the log **only when it differs from the previous one**, so a minute of sitting still is one line, not 120.
-* `ask(log, question)` is the reasoner. It pastes the log and your question into one prompt, tells Qwen to answer in at most three sentences using only what is in the log, and sends it to Ollama with thinking off.
-
-Run it through VNC and a window opens with YOLO's boxes, the current reading and the seconds left. Press q to stop watching early. Over plain ssh add `--headless` and you get the same thing minus the window.
-
-```
-(.venv) pi@raspberrypi:~/Interactive-Lab-Hub/Lab 5 $ python yolo_to_qwen.py
-```
-
-It watches for a minute, saves the log to `watch_log.txt` and asks Qwen the default question. The terminal looks something like this:
-
-```
-14:02:11 nobody
-14:02:19 1 person(s) at right/far
-14:02:24 1 person(s) at center/close
-14:02:51 nobody
-
-4 lines saved to watch_log.txt
-asking Qwen...
-
-Qwen (18.4 s):
-One person came in from the right, moved close to the camera, and left after about half a minute. ...
-```
+The panels were generated with ChatGPT from a photo of my room; the room layout, the camera placement and what happens in each panel are mine.
 
 ---
 
-# Lab 5 Part 2: Overnight Sensation
-
-For Part 2, you will use the observant system from Part 1 to design a night-time interaction. On-device AI is slow, so let it work while you sleep. The person meets the device twice: **before bed**, when they hand the night over, and **when awake**, when the device gives something back. In between, the pipeline from Part E runs on its own.
-
-Two flavors, pick one or mix them:
-
-* **Sense all night.** The Pi watches, listens or measures from bedtime until morning and keeps a log.
-* **Process all night.** You already have the data (a day of phone photos, a long recording) and the Pi needs hours to get through it.
-
-Two house rules. Sample rather than stream: one look every 5 to 30 seconds is plenty, and it keeps the Pi cool. And keep everything on the Pi: tell the people you live with, point the camera at things rather than at beds, and delete the snapshots after the demo.
-
-## Part F. 
-### Read Part 2 and storyboard your night-time interaction
-
-Storyboard a night-time interaction built on your observant system, in three panels:
-
-1. **Before bed.** How does the person hand the night over, and how does the device acknowledge it?
-2. **While asleep.** What does the device watch or work through?
-3. **When awake.** What is the one thing the person learns, and in what medium?
-
-Stuck? A kitchen that tells you who raided the fridge. A desk that reports whether you actually went to bed. A window that names the quietest hour. A plant that describes its night. Find something better.
-
-Use storyboards and/or [Verplank diagrams](https://ccrma.stanford.edu/courses/250a-fall-2004/IDSketchbok.pdf).
-
-\*\*\***Insert ideas, sketches, Verplank diagrams and storyboards for your night-time interaction here.**\*\*\*
+# Part 2
 
 ## Prep for Part 2
 
-1. Look at and give feedback on the Part F storyboards.
-   **Put the feedback for your ideas here.**
-2. [Update your Lab Hub](prep.md#get-the-latest-content) to get the latest content for Part 2.
-3. Decide where the device will spend the night and who else lives there. Get their OK before the first run.
-4. Revise your storyboard with the feedback and with what you learned in Part E about where the pipeline breaks.
+Feedback on the storyboard from a housemate, after looking at the three panels:
 
-\*\*\***Post your revised storyboard here.**\*\*\*
+1. "Isn't this really timing when you leave your room, not when you get out of bed? You could be up and getting dressed for twenty minutes before you walk out."
+2. "What if you just go to the bathroom and then get back in bed? It'd think you were up."
+3. "By the time it tells you, aren't you already out the door? Who's it talking to?"
+4. "What happens on days your alarm isn't at 7:30, like weekends? It'll just be wrong."
+5. "If you turn the light off to go out at night, won't it think you're going to bed?"
+6. "It's a neat idea, but couldn't a clock do most of this? What's the smart part actually doing?"
 
-## Part G. 
-### Design the interaction before
+The Pi spends the night in my room, on top of the PC box, facing the door, bed out of frame. My housemates are fine with it; the door is closed overnight, so nobody but me is ever in the frame.
 
-The hand-off: the person tells the device what to watch tonight, and the device acknowledges it. Keep it to a thirty-second ritual. A button or a touch (Lab 4), a spoken sentence (Lab 3), a wave or a Quiet Coyote at the camera (Part C). The acknowledgement can be a line on the display, a tone, or an LED that dims rather than lights up. At its simplest, the hand-off just sets the question that the morning will answer.
+### Revised storyboard
 
-\*\*\***Describe the interaction before.**\*\*\*
+What I changed after the feedback and after Part E:
 
-## Part H. 
-### Incorporate the observant system
+1. Leaving my room vs getting out of bed: keep, but reword. The camera can only tell me when I'm at the door, and in my room everything reads close anyway, so it can't tell getting out of bed from standing at my desk. The question is now how long after my alarm did I leave my room, which is what it actually measures and still what I want to know.
+2. A bathroom trip isn't getting up: change. Since the log only writes when something changes, a bathroom trip shows up as me leaving and coming back a few minutes later. My rule: I count as up at the first time I leave after 7:30 and don't come back within 10 minutes. A long shower followed by coming back to get dressed could still fool it.
+3. The answer comes after I've left: change. Because of the 10-minute rule the Pi can't know I'm really up the moment I walk out anyway. So the answer waits until the next time the camera sees me come back into my room, and the speaker tells me then: "This morning you left your room at 7:52, 22 minutes after your alarm." Panel 3 above is the redrawn version, me walking back in.
+4. Fixed 7:30: keep. My alarm is the same on weekdays, so it only runs on those days, and a different alarm time would give a wrong answer.
+5. Lights off by accident: change. The hand-off only counts after 10 pm, so turning the light off to go out earlier in the evening doesn't trigger the beep.
+6. What the smart part is doing: change. Code finds the times, applies the 10-minute rule and works out the minutes. In Part E Qwen missed things in a short log and said nothing changed when a lot did, so it gets a narrow job: it gets the computed facts (alarm time, when I left, any short trips before that) and turns them into one sentence for me.
 
-The Part E pipeline becomes the night shift. `overnight.py` runs your `interpret()` from `yolo_to_qwen.py` every few seconds, people only unless you pass `--all`, and writes the readings to `night_log.jsonl`; the reasoning waits for the morning. Start it inside `tmux` so it keeps running after you close your laptop, and stop it with Ctrl-C in the morning:
+## G. The interaction before
+
+After 10 pm, I turn the lights off. That's the whole hand-off, nothing to press or say. The Pi notices the frame going dark with an average-brightness check and answers with a short beep through the speaker, which tells me it has taken the night. Under 30 seconds, and it is something I do anyway.
+
+For the first real night the beep was not built yet, so I acted the hand-off out on video with the night shift already running:
+
+[Video: the hand-off, lights off at 11:40 pm (41 s)](media/part-g-handoff.webm)
+
+The night log itself caught the first take as a person at right/close at 23:31:41 and 23:32:12, gone five seconds later each time. It did not catch the second take at all, even though I stood at the switch for 20 seconds with the lights on. The switch is on the same wall as the camera, almost beside it, so it is either outside the camera's cone or too close to make a person box. The camera watches the door well and the hand-off spot badly, which is one more reason the hand-off trigger is the brightness drop and not a person box.
+
+## H. The overnight run
+
+Fake night first: `overnight.py` for a few minutes while I walked in and out of the door frame, then `morning.py`:
 
 ```
-(.venv) pi@raspberrypi:~/Interactive-Lab-Hub/Lab 5 $ tmux new -s night
-(.venv) pi@raspberrypi:~/Interactive-Lab-Hub/Lab 5 $ python overnight.py
+6 changes, 3 with something in view, 2 heartbeats, 23:07 to 23:14
+changes per hour: {'23:00': 3}
+
+The camera captured a quiet night shift, with only one person visible throughout the entire period. The sequence of entries suggests a routine activity centered on the center of the room, though the specific location remained consistent across different times of day. There is no indication of any unusual events or significant changes in the environment during this brief window.
 ```
 
-Fake a night first: run it for thirty seconds while you walk around, stop it, and run `morning.py` from Part I. When that looks right, run a real night. If your storyboard needs a sensor rather than the camera, swap in the Lab 4 example code and log its reading the same way.
+The snapshot it saved confirmed the framing: door and hallway in the frame, poster wall on the left, the guitar's headstock bottom right, no bed. I renamed that log to `fake_night.jsonl` so the real night starts clean, since `overnight.py` appends.
 
-\*\*\***Screenshots or videos of the running system.**\*\*\*
+Real night: started 23:21:42 on November 2 in a tmux session, plain `overnight.py`, one look every 5 seconds, people only. The first lines were `nobody` and a heartbeat; the 23:41 heartbeat confirmed it was alive before I went to sleep. The log and the morning report go here when the night is over.
 
-## Part I. 
-### Design the interaction after
+## I. The interaction after
 
-The reveal. The night produced a log; the morning turns it into something a half-awake person can take in. `morning.py` is the smallest version: it asks Qwen for a three-sentence report.
-
-```
-(.venv) pi@raspberrypi:~/Interactive-Lab-Hub/Lab 5 $ python morning.py
-```
-
-Make it yours: show the report on the Mini PiTFT, read it aloud with Piper from Lab 3, plot the night as a timeline, or ask for JSON (`--json`, Part D) and move a servo. Whatever you pick, make sure it is honest about a night in which nothing happened.
+In progress. `morning.py` runs on the real log first; then my own version: the 10-minute rule in code, Qwen turning the computed facts into one sentence, spoken through the speaker when the camera sees me come back in, and an honest sentence for a morning where nothing happened.
 
 ## Final documentation
 
-Document all the prototypes and iterations you have designed and worked on. The deliverables for this lab are writings, sketches, photos, and videos that show what your system:
-
-* "Looks like": how the device sits in the room at night, and what it looks like at bedtime and in the morning.
-* "Works like": the pipeline from detector to interpreter to log to reasoner, with a real night's data.
-* "Acts like": how a person hands the night over and what they get back.
-
-\*\*\***Include a short video of the whole system**\*\*\*
-
-As always, make sure you document contributions and ideas from others (and AI) explicitly in your writeup.
-
-You are permitted (but not required) to work in groups and share a turn in; you are expected to make equal contribution on any group work you do, and N people's group project should look like N times the work of a single person's lab. Make sure the page for the group turn in is linked to your personal Interactive Lab Hub page.
-
-## Deliverables & Submission for Lab 5
-
-For submission, the readme.md page for this lab should be edited to include the work you have done:
-* Upload any materials that explain what you did, including your code and night log, into your Lab 5 repository, and link them in your Lab 5 readme.md.
-* Labs are due on Sundays, make sure to submit your Lab 5 readme.md to Canvas.
-
-<details>
-  <summary><strong>Submission Cleanup Reminder (Click to Expand)</strong></summary>
-
-  **Before submitting your README.md:**
-  - This readme.md file has a lot of extra text for guidance.
-  - Remove all instructional text and example prompts from this file.
-  - You may either delete these sections or use the toggle/hide feature in VS Code to collapse them for a cleaner look.
-  - Your final submission should be neat, focused on your own work, and easy to read for grading.
-</details>
+In progress: looks like, works like and acts like, the whole-system video, the night log and code uploaded here.
