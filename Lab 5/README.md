@@ -4,9 +4,9 @@
 
 **Members:** Giorgi (Samu) Samushia (gs799, umasshia)
 
-**Project name:** to be named
+**Project name:** Out the door
 
-**AI use:** Claude helped me organize my notes into these paragraphs. The storyboard panels in Part F were generated with ChatGPT from a photo of my room.
+**AI use:** Claude helped me organize my notes into these paragraphs and wrote `my_morning.py` from my design. The storyboard panels in Part F were generated with ChatGPT from a photo of my room.
 
 A camera on top of my PC watches my bedroom door all night and tells me in the morning how long after my 7:30 alarm I actually left the room.
 
@@ -162,7 +162,7 @@ For the first real night the beep was not built yet, so I acted the hand-off out
 
 [Video: the hand-off, lights off at 11:40 pm (41 s)](media/part-g-handoff.webm)
 
-The night log itself caught the first take as a person at right/close at 23:31:41 and 23:32:12, gone five seconds later each time. It did not catch the second take at all, even though I stood at the switch for 20 seconds with the lights on. The switch is on the same wall as the camera, almost beside it, so it is either outside the camera's cone or too close to make a person box. The camera watches the door well and the hand-off spot badly, which is one more reason the hand-off trigger is the brightness drop and not a person box.
+The night log caught me at right/close three times between 23:30 and 23:32 while I was setting up and filming the first take, five seconds each time. It did not catch the second take at all, even though I stood at the switch for 20 seconds with the lights on. The switch is on the same wall as the camera, almost beside it, so it is either outside the camera's cone or too close to make a person box. The camera watches the door well and the hand-off spot badly, which is one more reason the hand-off trigger is the brightness drop and not a person box.
 
 ## H. The overnight run
 
@@ -177,12 +177,58 @@ The camera captured a quiet night shift, with only one person visible throughout
 
 The snapshot it saved confirmed the framing: door and hallway in the frame, poster wall on the left, the guitar's headstock bottom right, no bed. I renamed that log to `fake_night.jsonl` so the real night starts clean, since `overnight.py` appends.
 
-Real night: started 23:21:42 on November 2 in a tmux session, plain `overnight.py`, one look every 5 seconds, people only. The first lines were `nobody` and a heartbeat; the 23:41 heartbeat confirmed it was alive before I went to sleep. The log and the morning report go here when the night is over.
+Real night: started 23:21:42 on November 2 in a tmux session, plain `overnight.py`, one look every 5 seconds, people only, and stopped at about 8:50 the next morning. The [night log](night_log.jsonl) has 13 changes, 6 with someone in view, and 57 heartbeats, so the Pi stayed up all night. Without the heartbeats, the night is:
+
+```
+23:30:44  right/close    setting up and filming the hand-off
+23:31:41  right/close
+23:32:12  right/close
+06:37:26  center/close   I got up for a sec to get my phone, which was in camera view
+08:35:12  center/far     I left the room
+08:48:18  center/close   I came back in
+```
+
+08:35 is the only `far` reading in the whole lab. At the door I'm finally far enough from the camera for my box to be under 60 % of the frame.
+
+The handout's `morning.py` on that log:
+
+![morning.py on the real night](media/part-h-morning-report.png)
+
+"It was a quiet night in the 23:00s, with only one person lingering near the right side of the room at 23:30. By 23:48, that same individual had moved to the center, leaving behind a small cluster of shadows and a sense of stillness. The clock ticks past midnight, but the atmosphere remains calm as the day begins."
+
+It never mentions 6:37 or the morning, and 23:48 and the center are made up: the log has me at right/close from 23:30 to 23:32 and nothing at 23:48.
 
 ## I. The interaction after
 
-In progress. `morning.py` runs on the real log first; then my own version: the 10-minute rule in code, Qwen turning the computed facts into one sentence, spoken through the speaker when the camera sees me come back in, and an honest sentence for a morning where nothing happened.
+[my_morning.py](my_morning.py) is my version. The answer is worked out in code. It finds the first time the camera sees me at the door after 7:30 that isn't followed by another sighting within 10 minutes (a sighting followed by one within 10 minutes is a short trip), and the next sighting after that is me coming back. Qwen only gets those facts and turns them into one sentence, and Piper from Lab 3 reads it through the speaker. If Qwen's sentence is missing the time or the minutes, the script uses a plain sentence instead. If the camera never saw me leave after the alarm, it says so in a fixed sentence and doesn't ask Qwen at all.
+
+On the real night:
+
+```
+Alarm: 7:30
+Got up and left the room: 8:35, 65 minutes after the alarm
+Came back into the room: 8:48
+Short trips out and back after the alarm, before that: none
+Seen at the door before the alarm: 6:37
+[qwen3.5:0.8b, 9.6 s] You left your room at 8:35, which is 65 minutes after the alarm went off at 7:30.
+```
+
+The speaker said it out loud.
+
+[Video: the morning answer (31 s)](media/part-i-morning.mp4)
+
+For the video I started it by hand after walking back in, since the night shift was already stopped. `--watch` is the mode that runs next to `overnight.py` and answers on its own when I walk back in; it is written but I haven't run it live yet.
 
 ## Final documentation
 
-In progress: looks like, works like and acts like, the whole-system video, the night log and code uploaded here.
+[Video: the whole system, the hand-off at night and the answer in the morning (72 s)](media/whole-system.mp4)
+
+Looks like: the webcam sits on top of my PC box on the desk, facing my bedroom door, with the bed out of the frame, and the Lab 3 speaker sits on the desk next to the Pi. At night it's a dark room with a closed door. In the morning it's the same view with me walking back in and the speaker talking.
+
+Works like: `overnight.py` runs YOLO26n on NCNN once every 5 seconds, turns each frame into a reading with `interpret()` from Part E, and writes it to [night_log.jsonl](night_log.jsonl) only when it changes. In the morning `my_morning.py` reads the log, applies the 10-minute rule and gives Qwen (qwen3.5:0.8b through Ollama) just the computed facts, and Piper speaks the sentence. Everything runs on the Pi, offline.
+
+Acts like: before bed I turn the lights off, and that's the hand-off. In the morning I leave and come back, and it tells me when I left and how many minutes after my alarm that was. Last night it was 8:35, 65 minutes.
+
+Not built yet: the brightness check and beep for the hand-off (acted out in the video instead) and the 10 pm cutoff that goes with it.
+
+Code: [my_morning.py](my_morning.py), plus the handout's `overnight.py`, `yolo_to_qwen.py` and `morning.py` in this folder.
